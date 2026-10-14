@@ -1,0 +1,12 @@
+{
+  "name": "rea-mcp-lite",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "DSH 与 REA 之间的 MCP 按需加载网关：把 170 个工具压缩成 4 个元工具 + 可选功能族，支持热切换。",
+  "scripts": {
+    "probe": "node test/probe.mjs",
+    "list": "node src/cli.mjs list",
+    "status": "node src/cli.mjs status"
+  }
+}

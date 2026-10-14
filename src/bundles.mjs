@@ -1,0 +1,157 @@
+// REA 170 个 MCP 工具的「功能族」划分。
+// 用显式工具名列表（从 REA 6.4.0 实际 tools/list 导出），便于核对与演进：
+// 若 REA 升级后新增工具，未归族者会在 `bundles` 元工具里以 unassigned 形式报出来。
+
+export const BUNDLES = {
+  nav: {
+    label: '会话与导航（打开目标、游标、字节、段表）',
+    hint: '最先用得上的一组：打开二进制/文档、在地址间跳转、读字节、看段与架构。',
+    tools: [
+      'binary_session', 'open_binary', 'close_binary', 'list_documents', 'current_document',
+      'current_address', 'current_procedure', 'get_navigation_context', 'goto_address',
+      'next_address', 'prev_address', 'address_name', 'address_to_file_offset', 'read_bytes',
+      'list_architectures', 'list_segments', 'binary_overview', 'inspect_address_context',
+      'list_bookmarks', 'set_bookmark', 'unset_bookmark', 'inspect_analysis_view',
+    ],
+  },
+  native: {
+    label: '原生静态分析（反编译、反汇编、交叉引用、注解）',
+    hint: 'Ghidra/Hopper/IDA 类的核心操作：函数伪代码与汇编、调用图、字符串与符号、改名改注释。',
+    tools: [
+      'analyze_function', 'batch_decompile', 'read_function_instructions', 'procedure_pseudo_code',
+      'procedure_assembly', 'procedure_info', 'procedure_callers', 'procedure_callees',
+      'procedure_references', 'procedure_address', 'list_procedures', 'search_procedures',
+      'get_call_graph', 'build_call_path', 'trace_call_path', 'xrefs', 'find_xrefs_to_name',
+      'search_strings', 'list_strings', 'list_names', 'resolve_containing_procedure',
+      'resolve_native_call_targets', 'inspect_native_instruction', 'inspect_native_data_type',
+      'inspect_native_api', 'inspect_native_load_image', 'inspect_native_dispatch_metadata',
+      'inspect_binary_layout', 'inspect_macho', 'inspect_signature', 'annotate_native_function',
+      'set_address_name', 'set_addresses_names', 'set_comment', 'set_inline_comment',
+      'comment', 'inline_comment', 'trace_native_values', 'trace_native_ui_action',
+      'trace_feature', 'observe_native_calls', 'observe_native_ui', 'capture_native_ui_scenario',
+      'inspect_pe_resources',
+    ],
+  },
+  apple: {
+    label: 'Apple 生态（Objective-C / Swift / plist / 资源目录 / 动态库解析）',
+    tools: [
+      'demangle_swift', 'get_objc_classes', 'get_objc_protocols', 'analyze_swift_types',
+      'trace_dylib_resolution', 'inspect_plist', 'inspect_keyed_archive', 'inspect_asset_catalog',
+      'decode_interface_builder', 'project_apple_application_graph', 'inspect_signature',
+      'inspect_macho',
+    ],
+  },
+  managed: {
+    label: '.NET / 托管程序集',
+    hint: 'CIL 元数据成员、托管与原生边界、托管应用图与重建导入。',
+    tools: [
+      'inspect_managed_artifact', 'inspect_managed_members', 'inspect_managed_native_boundaries',
+      'verify_managed_native_boundaries', 'compare_managed_members',
+      'project_managed_application_graph', 'import_managed_reconstruction',
+    ],
+  },
+  js: {
+    label: 'JavaScript / Electron 应用',
+    hint: '打包应用的模块图、语义追踪、Electron 场景与运行时对账（本机最常用的一族）。',
+    tools: [
+      'analyze_javascript_application', 'recover_javascript_sources', 'trace_javascript_semantics',
+      'observe_javascript_runtime', 'list_javascript_runtime_targets', 'reconcile_javascript_runtime',
+      'compare_javascript_export_shapes', 'compare_application_versions', 'compare_source_to_bundle',
+      'trace_application_feature', 'capture_electron_scenario', 'inspect_electron_page',
+      'list_electron_targets',
+    ],
+  },
+  web: {
+    label: '网页 / 浏览器（CDP、网络、脚本、源码映射）',
+    hint: '被动观察页面、抓网络与监听器、导出脚本、源码映射定位。',
+    tools: [
+      'inspect_web_page', 'inspect_web_network_capture', 'inspect_web_event_listeners',
+      'observe_web_execution', 'observe_web_session', 'discover_webmcp_tools',
+      'compare_web_captures', 'compare_web_screenshots', 'capture_web_screenshot',
+      'capture_browser_scenario', 'trace_web_source_location', 'trace_web_module_imports',
+      'export_web_scripts', 'analyze_web_bundle', 'list_browser_targets',
+    ],
+  },
+  android: {
+    label: 'Android / ADB / JEB',
+    hint: '设备与包管理、日志、屏幕、APK 资源解码、类与方法反编译。',
+    tools: [
+      'capture_adb_screen', 'collect_adb_bugreport', 'inspect_adb_client', 'inspect_adb_device',
+      'inspect_adb_display', 'inspect_adb_package', 'inspect_adb_window', 'install_adb_package',
+      'list_adb_devices', 'list_adb_directory', 'list_adb_features', 'list_adb_packages',
+      'list_adb_processes', 'list_adb_services', 'pull_adb_file', 'pull_adb_package',
+      'push_adb_file', 'read_adb_logcat', 'read_adb_setting', 'resolve_adb_packages',
+      'start_adb_activity', 'start_adb_app', 'stop_adb_app', 'uninstall_adb_package',
+      'decode_android_resources', 'inspect_android_class', 'inspect_android_method',
+      'inspect_android_package', 'project_android_application_graph', 'search_android_classes',
+      'trace_android_references', 'decompile_jeb_item', 'inspect_jeb_client', 'list_jeb_units',
+      'open_jeb_project', 'inspect_apktool_client',
+    ],
+  },
+  evidence: {
+    label: '证据治理（对比、验证、未知项、重建账本）',
+    hint: '跨版本/跨版本对比、证据包导入导出、未知项跟踪与重建覆盖验证。',
+    tools: [
+      'compare_artifacts', 'compare_bundles', 'compare_functions', 'compare_process_captures',
+      'build_reconstruction_obligation_ledger', 'evaluate_reconstruction_coverage',
+      'verify_reconstruction', 'verify_unknown_resolution', 'record_unknown', 'update_unknown',
+      'list_unknowns', 'export_evidence_bundle', 'import_evidence_bundle', 'get_evidence_bundle',
+      'find_changed_behavior', 'correlate_static_and_runtime',
+    ],
+  },
+  runtime: {
+    label: '运行时捕获与包体（进程、固件、EVM、应用包）',
+    tools: [
+      'capture_process_scenario', 'inspect_recorded_crash', 'inspect_firmware_regions',
+      'extract_firmware', 'inspect_evm_interface', 'inspect_artifact', 'extract_artifact',
+      'compare_process_captures', 'project_apple_application_graph',
+      'project_android_application_graph', 'project_managed_application_graph',
+    ],
+  },
+};
+
+/** 「全部」是一个虚拟族：始终匹配所有工具。 */
+export const ALL_BUNDLE = 'all';
+
+/** 某工具所属的全部族名（不含 all）。 */
+export function bundlesOf(toolName) {
+  return Object.entries(BUNDLES)
+    .filter(([, def]) => def.tools.includes(toolName))
+    .map(([name]) => name);
+}
+
+/**
+ * 计算给定族集合要暴露的工具名集合。
+ * @param {string[]} bundleNames 族名数组，可含 'all'
+ */
+export function resolveBundleTools(bundleNames) {
+  const wanted = new Set();
+  for (const name of bundleNames ?? []) {
+    if (name === ALL_BUNDLE) return new Set(['*']);
+    const def = BUNDLES[name];
+    if (!def) continue;
+    for (const t of def.tools) wanted.add(t);
+  }
+  return wanted;
+}
+
+/** 供 `bundles` 元工具使用：每个族的工具数、估算 token 成本、以及在全部工具中的命中数。 */
+export function describeBundles(allToolNames, costOf) {
+  const known = new Set(allToolNames);
+  return Object.entries(BUNDLES).map(([name, def]) => {
+    const hit = def.tools.filter((t) => known.has(t));
+    return {
+      name,
+      label: def.label,
+      hint: def.hint,
+      toolCount: hit.length,
+      missing: def.tools.filter((t) => !known.has(t)),
+      estTokens: costOf(hit),
+    };
+  });
+}
+
+/** 未被任何族收录的工具（REA 升级后可能出现）。 */
+export function unassignedTools(allToolNames) {
+  return allToolNames.filter((t) => bundlesOf(t).length === 0);
+}

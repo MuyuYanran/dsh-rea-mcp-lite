@@ -1,0 +1,54 @@
+---
+name: rea-tool-gateway
+description: Use when REA tools appear as the mcp__rea__ meta tools (search_tools / tool_schema / call_tool / bundles) instead of 170 individual tools. Explains how to reach every REA reverse-engineering tool through the gateway, when to load a bundle, and how to switch tool sets at runtime.
+metadata:
+  version: "1"
+---
+
+# REA 网关模式
+
+当 REA 的工具列表里只有 4 个元工具（`mcp__rea__search_tools`、`mcp__rea__tool_schema`、
+`mcp__rea__call_tool`、`mcp__rea__bundles`）时，说明 `rea-mcp-lite` 代理正在把关：
+REA 的 170 个工具**没有消失**，只是默认不摆到桌面上（省约 70k token 上下文）。
+
+## 调用任何 REA 工具
+
+不需要先加载功能族。两条路：
+
+```
+mcp__rea__call_tool  { "tool": "analyze_function", "arguments": { "procedure": "main" } }
+```
+
+或先用 `search_tools` 找名字：
+
+```
+mcp__rea__search_tools { "query": "pseudocode" }   → analyze_function / procedure_pseudo_code / …
+mcp__rea__tool_schema  { "tool": "analyze_function" }  → 完整未裁剪的 inputSchema
+```
+
+- 工具返回 REA 自己的结构化错误（例如 `{"error":{"code":"target_unavailable"}}`）说明**转发成功**而目标未就绪 —— 按 REA 技能里的流程先 `open` 目标。
+- 参数报错时用 `tool_schema` 取原始 schema：代理在暴露时会裁掉 `pattern`/`format`/`minLength` 之类的约束，服务端仍会校验。
+
+## 什么时候加载功能族
+
+加载族 = 把那一族工具的完整说明书摆到桌面上，便于多步流程里连续调用、避免每次猜名字。
+单次、零散调用用 `call_tool` 更省。
+
+```
+mcp__rea__bundles { "action": "list" }                              # 看族、工具数、token 成本
+mcp__rea__bundles { "action": "activate",   "bundles": ["native"] }  # 增量加载
+mcp__rea__bundles { "action": "deactivate", "bundles": ["native"] }  # 卸载
+mcp__rea__bundles { "action": "set",        "bundles": ["js","web"] }# 直接替换
+```
+
+族：`nav`(22) `native`(44) `apple`(12) `managed`(7) `js`(13) `web`(15) `android`(36) `evidence`(16) `runtime`(11) `all`(170)。
+
+按任务挑族：Electron/JS 应用 → `js`；网页/CDP → `web`；原生二进制 → `nav` + `native`；
+.NET → `managed`；Android/APK → `android`；跨版本对比与证据包 → `evidence`。
+
+## 注意
+
+- 切换是**热更新**：代理发 `notifications/tools/list_changed`，DSH 立刻换工具集，无需重启。
+- 加载族会立刻增加上下文占用（见 `bundles` 输出的 token 估算）。**长任务结束后用
+  `{"action":"set","bundles":[]}` 卸载**，把上下文还回去。
+- 运行时切换会写回 `config.json`，重启后仍生效；想改回默认就 `set` 成 `[]`。

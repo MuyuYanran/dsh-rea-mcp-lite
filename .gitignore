@@ -1,0 +1,16 @@
+# 本机运行配置（含机器专属路径），不进版本库；模板见 config.example.json
+config.json
+config.json.tmp
+
+# 备份
+*.bak
+*.bak-*
+
+# probe/ 抓下来的大体积原始证据（体积大、可重新生成）
+probe/*.jsonl
+probe/client-index.js
+probe/client-readme.md
+probe/client-readme-zh.txt
+probe/llm-deepseek.js
+
+node_modules/
