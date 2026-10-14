@@ -12,6 +12,7 @@ import { BUNDLES, ALL_BUNDLE, resolveBundleTools } from './bundles.mjs';
 import { projectTool, estimateTokens } from './lite.mjs';
 import { META_TOOLS, META_NAMES, handleMetaTool, describeExposedText } from './meta-tools.mjs';
 import { CONFIG_PATH, loadConfig, saveConfig } from './config.mjs';
+import { tryWriteSnapshot, SNAPSHOT_PATH } from './snapshot.mjs';
 
 function log(...args) { process.stderr.write(`[rea-mcp-lite] ${args.join(' ')}\n`); }
 
@@ -200,9 +201,18 @@ class ReaProxy {
       this.childTools = msg.result?.tools ?? [];
       this.exposedCache = null;
       log(`已缓存 ${this.childTools.length} 个 REA 工具的 schema`);
+      this.refreshSnapshot();
     } catch (error) {
       log(`预取工具列表失败：${error.message}`);
     }
+  }
+
+  /** 把工具成本快照落盘，供设置页（dsh-plugin）与 CLI 免启动 REA 直接读取。 */
+  refreshSnapshot() {
+    if (!this.childTools) return;
+    const snapshot = tryWriteSnapshot(this.childTools, this.config);
+    if (snapshot) log(`已刷新工具快照：${SNAPSHOT_PATH}（${snapshot.toolCount} 个工具，全量约 ${snapshot.totalTokens} tok）`);
+    else log(`工具快照写入失败（${SNAPSHOT_PATH}），设置页将退回仓库内已有的快照`);
   }
 
   async ensureTools() {
@@ -256,9 +266,11 @@ class ReaProxy {
         timer = setTimeout(() => {
           const fresh = loadConfig();
           const changedBundles = fresh.activeBundles.join(',') !== this.activeBundles.join(',');
+          const changedShape = fresh.lite !== this.config.lite || fresh.shortDescription !== this.config.shortDescription;
           this.config = fresh;
           this.activeBundles = [...fresh.activeBundles];
           log('config.json 已变更，重新加载');
+          if (changedShape) this.refreshSnapshot();
           if (changedBundles) this.writeOut({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
         }, 150);
       });

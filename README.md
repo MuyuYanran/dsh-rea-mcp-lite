@@ -171,13 +171,34 @@ node src/cli.mjs list      # 带实时 token 估算的功能族一览
 node src/cli.mjs status    # 当前配置
 ```
 
-## 三种开关方式（都热更新，无需重启 DSH）
+## 四种开关方式（都热更新，无需重启 DSH）
 
-1. **直接对模型说** —— "把 web 和 js 族加载上" → 模型调 `bundles {"action":"activate","bundles":["web","js"]}` → 代理发 `list_changed` → DSH 当场换工具集。
-2. **改 `config.json`** —— 代理 `fs.watch` 该文件，约 150ms 内生效。
-3. **CLI** —— `node src/cli.mjs use web js`（本质就是改 config.json）。
+1. **设置页点选**（最省事，见下一节）——「设置 → REA 工具」勾选功能族，实时看到每个族的 token 成本与实测变化。
+2. **直接对模型说** —— "把 web 和 js 族加载上" → 模型调 `bundles {"action":"activate","bundles":["web","js"]}` → 代理发 `list_changed` → DSH 当场换工具集。
+3. **改 `config.json`** —— 代理 `fs.watch` 该文件，约 150ms 内生效。
+4. **CLI** —— `node src/cli.mjs use web js`（本质就是改 config.json）。
 
 运行时切换会写回 `config.json`（`persistRuntimeSwitch: true`），重启后保持。
+
+## 设置页（可选，推荐）
+
+仓库里的 `dsh-plugin/` 是一个 DSH 插件（细节见 [dsh-plugin/README.md](dsh-plugin/README.md)），装好后在 **设置 → REA 工具** 多出一页：
+
+- 勾选框切换功能族，每个族标注工具数与约 token；顶部合计「元工具 + 已勾选族」以及相对全量加载省下的百分比。
+- **会话内实测**：DSH 工具注册表里真实存在的 `mcp__rea__*` 数量与字符数 —— 保存后约 1 秒跟随变化，用来确认热切换真的生效。
+- 状态灯显示 rea 服务器是 已连接 / 已在 MCP 管理里停用 / 启用但未连上（后者多半是子进程起不来，看「MCP 管理」里的启动错误）。
+- 「查工具属于哪个族」搜索框：在 170 个工具里按名字或说明搜。
+
+```bash
+# 装进某个 profile（这里以 desktop 为例；web 同理）—— 依赖与 dsh.profile.bundles 都会自动登记
+dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
+```
+
+装好后重启一次 DSH 让插件加载；之后改勾选**不需要**重启 —— 面板写 `config.json`，代理监听文件后热切换，约 1 秒生效。
+
+- 面板只管「加载哪些族」，不管 MCP 服务器本身的启停（那是「MCP 管理」的事）。当前 profile 里 `rea` 被停用时，面板会明确提示。
+- 插件默认从「自己的上一级目录」找网关；网关装在别处时，设环境变量 `REA_LITE_ROOT` 指向网关目录即可。
+- 面板读的是 `data/tools-model.json`（工具成本快照：170 个工具的字符数 + 一句话描述 + 所属族），**不含完整 schema**，30 KB 上下。代理每次连上 REA 都会刷新它；也可以手动 `npm run snapshot` 重新生成。
 
 ## 配置项
 
@@ -198,7 +219,9 @@ node src/cli.mjs status    # 当前配置
 
 ```bash
 node test/probe.mjs         # 16 项集成测试：握手 / 元工具 / 搜索 / 转发 / 热加载 / 热卸载 / 全量
+node test/plugin.test.mjs   # 41 项插件自检：假 Cordis 上下文驱动面板 API + 渲染设置页
 node test/check-config.mjs  # 用真实 config.json 拉起 REA，确认 170 工具可达
+node src/cli.mjs snapshot   # 重新生成工具成本快照 data/tools-model.json
 ```
 
 ## 配套的模型侧说明

@@ -1,0 +1,11 @@
+# dsh-rea-lite-panel 的 bundle patch：把本插件的宿主半（lib/index.js）插进 profile 的层栈。
+#
+# 宿主半在回环 Web 服务器上开一个只服务本机页面的 API（/rea-lite），读写 rea-mcp-lite 的
+# config.json；package.json 里的 `dsh.client` 声明让 Web 端把 lib/client.js 当作浏览器半加载，
+# 由它把「REA 工具」注册进设置侧边栏（settings.section 槽位）。
+#
+# 面板默认从「本包目录的上一级」寻找网关（仓库布局 dsh-plugin/ + src/ 同级）；
+# 若网关装在别处，给这一行加 config.root 指向网关目录，或设环境变量 REA_LITE_ROOT。
+- insert:
+    - id: rea-lite-panel
+      name: dsh-rea-lite-panel

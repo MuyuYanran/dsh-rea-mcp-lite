@@ -1,0 +1,53 @@
+{
+  "name": "dsh-rea-lite-panel",
+  "version": "0.1.0",
+  "description": "REA 工具网关的设置页：勾选功能族、看清每个族的上下文成本、热切换，无需改配置文件或重启 DSH。",
+  "license": "MIT",
+  "icon": "./icon.svg",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./locale/*.json": "./locale/*.json",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "locale/*.json",
+    "icon.svg",
+    "cordis.patch.yml",
+    "README.md"
+  ],
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "mcp",
+    "rea",
+    "reverse-engineering"
+  ],
+  "peerDependencies": {
+    "@deepseek-ai/dsh": ">=0.1.6-alpha.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0"
+  },
+  "peerDependenciesMeta": {
+    "@deepseek-ai/dsh": {
+      "optional": true
+    }
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": []
+    }
+  },
+  "meta": {
+    "title": "REA 工具网关",
+    "description": "让 REA 的 170 个逆向工具按需加载：勾选功能族、看清 token 成本、约 1 秒热切换。"
+  }
+}

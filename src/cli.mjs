@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { BUNDLES, ALL_BUNDLE, describeBundles, unassignedTools } from './bundles.mjs';
 import { projectTool, estimateTokens } from './lite.mjs';
 import { loadConfig, saveConfig, CONFIG_PATH } from './config.mjs';
+import { buildSnapshot, writeSnapshot, readSnapshot, SNAPSHOT_PATH, tokensOfChars } from './snapshot.mjs';
 
 const [command, ...rest] = process.argv.slice(2);
 
@@ -15,6 +16,15 @@ function printStatus() {
   console.log(`当前加载：${active}`);
   console.log(`schema 裁剪：${config.lite}   元工具：${config.metaTools ? '开' : '关'}`);
   console.log(`REA 启动命令：${config.child.command} ${config.child.args.join(' ')}`);
+  const snapshot = readSnapshot();
+  if (!snapshot) {
+    console.log(`工具快照：无（${SNAPSHOT_PATH}）—— 运行 node src/cli.mjs snapshot 生成，设置页会读它`);
+  } else {
+    const stale = snapshot.lite !== config.lite || snapshot.shortDesc !== (config.shortDescription !== false);
+    console.log(
+      `工具快照：${snapshot.toolCount} 个工具，${snapshot.generatedAt}${stale ? '（与当前裁剪设置不一致，建议重新生成）' : ''}`,
+    );
+  }
 }
 
 /** 起一个短命的 REA 会话，拿到真实工具列表用于估算 token 成本。 */
@@ -53,6 +63,20 @@ async function fetchTools(config) {
   });
 }
 
+/** 生成/刷新工具成本快照（设置页读它来算每个族的 token 成本）。 */
+async function writeToolsSnapshot() {
+  const config = loadConfig();
+  process.stdout.write('正在启动 REA 取工具列表…\n');
+  const tools = await fetchTools(config);
+  const snapshot = buildSnapshot(tools, config);
+  writeSnapshot(snapshot);
+  console.log(`已写入快照：${SNAPSHOT_PATH}`);
+  console.log(
+    `工具 ${snapshot.toolCount} 个；全量约 ${snapshot.totalTokens} tok，元工具 ${snapshot.metaTokens} tok` +
+      `；schema 裁剪 ${snapshot.lite}${snapshot.unassigned.length ? `；未归族：${snapshot.unassigned.join(', ')}` : ''}`,
+  );
+}
+
 async function printBundles(live) {
   const config = loadConfig();
   const active = config.activeBundles;
@@ -81,12 +105,13 @@ async function printBundles(live) {
     const rest = unassignedTools(names);
     if (rest.length) console.log(`\n未归族：${rest.join(', ')}`);
   }
-  console.log(`\n用法：node src/cli.mjs use <族名…> | all | none | status`);
+  console.log(`\n用法：node src/cli.mjs use <族名…> | all | none | list | status | snapshot`);
 }
 
 if (command === 'status' || !command) printStatus();
 else if (command === 'list') await printBundles(true);
 else if (command === 'list-static') await printBundles(false);
+else if (command === 'snapshot') await writeToolsSnapshot();
 else if (command === 'all') {
   const config = loadConfig();
   saveConfig({ ...config, activeBundles: [ALL_BUNDLE] });
@@ -106,6 +131,6 @@ else if (command === 'all') {
   saveConfig({ ...config, activeBundles: [...new Set(rest)] });
   console.log(`已设为加载：${[...new Set(rest)].join(', ') || '（无）'}。DSH 在运行时将自动热更新。`);
 } else {
-  console.error('用法：node src/cli.mjs status | list | use <族名…> | all | none');
+  console.error('用法：node src/cli.mjs status | list | use <族名…> | all | none | snapshot');
   process.exit(1);
 }
