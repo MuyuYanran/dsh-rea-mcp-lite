@@ -315,6 +315,8 @@ export function computeState(input) {
       tools: hit.map((toolName) => ({ name: toolName, tokens: tokensOfChars(byName.get(toolName)?.chars ?? 0) })),
       // 需要额外准备（目标环境/外部工具链）或风险较高的族，面板上单独标注。
       risky: RISKY_BUNDLES.has(id),
+      // 用户自建的族：面板要能与内置族区分（可删除、显示「自定义」标签）。
+      custom: def.custom === true,
     };
   });
 
@@ -438,18 +440,20 @@ export function apply(ctx, config) {
         issue: `这里不像 rea-mcp-lite 网关（缺 src/bundles.mjs）：${root}。请把本插件与网关放在同一仓库，或设置 REA_LITE_ROOT。`,
       });
     }
-    const [{ BUNDLES, ALL_BUNDLE }, { loadConfig, CONFIG_PATH }, { readSnapshot, tokensOfChars }] = await Promise.all([
+    const [{ effectiveBundles, ALL_BUNDLE }, { loadConfig, CONFIG_PATH }, { readSnapshot, tokensOfChars }] = await Promise.all([
       loadGatewayModule(root, 'src/bundles.mjs'),
       loadGatewayModule(root, 'src/config.mjs'),
       loadGatewayModule(root, 'src/snapshot.mjs'),
     ]);
     const configPath = CONFIG_PATH ?? path.join(root, 'config.json');
+    const config = loadConfig();
     return computeState({
       root,
       configPath,
       writable: probeWritable(configPath),
-      config: loadConfig(),
-      bundleDefs: BUNDLES,
+      config,
+      // 生效族表 = 内置族 + 用户自定义族，面板要能一起显示与开关。
+      bundleDefs: effectiveBundles(config.customBundles),
       allBundle: ALL_BUNDLE,
       snapshot: readSnapshot(),
       tokensOfChars,
@@ -462,17 +466,18 @@ export function apply(ctx, config) {
   const saveActive = async (body) => {
     const root = resolveGatewayRoot(configuredRoot);
     if (!isGatewayRoot(root)) throw new Error(`找不到 rea-mcp-lite 网关：${root}`);
-    const [{ BUNDLES, ALL_BUNDLE }, { loadConfig, saveConfig, CONFIG_PATH }] = await Promise.all([
+    const [{ effectiveBundles, ALL_BUNDLE }, { loadConfig, saveConfig, CONFIG_PATH }] = await Promise.all([
       loadGatewayModule(root, 'src/bundles.mjs'),
       loadGatewayModule(root, 'src/config.mjs'),
     ]);
     if (!Array.isArray(body?.bundles)) throw new Error('bundles 必须是功能族名数组');
     const requested = [...new Set(body.bundles.map((entry) => String(entry)))];
-    const unknown = requested.filter((id) => id !== ALL_BUNDLE && !Object.hasOwn(BUNDLES, id));
-    if (unknown.length > 0) throw new Error(`未知功能族：${unknown.join(', ')}（可用：${Object.keys(BUNDLES).join(', ')}, ${ALL_BUNDLE}）`);
+    const current = loadConfig();
+    const table = effectiveBundles(current.customBundles);
+    const unknown = requested.filter((id) => id !== ALL_BUNDLE && !Object.hasOwn(table, id));
+    if (unknown.length > 0) throw new Error(`未知功能族：${unknown.join(', ')}（可用：${Object.keys(table).join(', ')}, ${ALL_BUNDLE}）`);
     const configPath = CONFIG_PATH ?? path.join(root, 'config.json');
     if (!probeWritable(configPath)) throw new Error(`配置文件不可写：${configPath}`);
-    const current = loadConfig();
     saveConfig({ ...current, activeBundles: requested });
     const state = await buildState();
     return {
@@ -509,6 +514,40 @@ export function apply(ctx, config) {
     };
   };
 
+  /**
+   * 保存/删除自定义功能族。
+   * body: { id, label?, hint?, tools: string[], delete?: boolean }
+   * 只动 customBundles（删除时同时把该族从 activeBundles 摘掉），不碰其它配置。
+   */
+  const saveCustom = async (body) => {
+    const root = resolveGatewayRoot(configuredRoot);
+    if (!isGatewayRoot(root)) throw new Error(`找不到 rea-mcp-lite 网关：${root}`);
+    const [{ normalizeCustomBundle }, { loadConfig, saveConfig, CONFIG_PATH }, { readSnapshot }] = await Promise.all([
+      loadGatewayModule(root, 'src/bundles.mjs'),
+      loadGatewayModule(root, 'src/config.mjs'),
+      loadGatewayModule(root, 'src/snapshot.mjs'),
+    ]);
+    const configPath = CONFIG_PATH ?? path.join(root, 'config.json');
+    if (!probeWritable(configPath)) throw new Error(`配置文件不可写：${configPath}`);
+    const current = loadConfig();
+    const custom = { ...(current.customBundles ?? {}) };
+    const id = typeof body?.id === 'string' ? body.id.trim() : '';
+
+    if (body?.delete === true) {
+      if (!Object.hasOwn(custom, id)) throw new Error(`没有自定义族：${id || '(空)'}`);
+      delete custom[id];
+      saveConfig({ ...current, customBundles: custom, activeBundles: (current.activeBundles ?? []).filter((b) => b !== id) });
+    } else {
+      // 用快照里的工具名做存在性校验：宁可此时报「未知工具」，也别存下一个调不通的族。
+      const known = (readSnapshot()?.tools ?? []).map((tool) => tool.name);
+      const normalized = normalizeCustomBundle({ id, label: body?.label, hint: body?.hint, tools: body?.tools }, known);
+      custom[normalized.id] = { label: normalized.label, hint: normalized.hint, tools: normalized.tools };
+      saveConfig({ ...current, customBundles: custom });
+    }
+    const state = await buildState();
+    return { ok: true, saved: true, applied: state.server.phase === 'active' ? 'hot' : 'pending', state };
+  };
+
   const handler = async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (!isLoopback(req)) {
@@ -523,6 +562,10 @@ export function apply(ctx, config) {
       }
       if (route === '/active' && req.method === 'POST') {
         sendJson(res, 200, await saveActive(await readJsonBody(req)));
+        return;
+      }
+      if (route === '/custom' && req.method === 'POST') {
+        sendJson(res, 200, await saveCustom(await readJsonBody(req)));
         return;
       }
       if (route === '/tools' && req.method === 'GET') {

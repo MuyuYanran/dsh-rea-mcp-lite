@@ -6,7 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bundlesOf, unassignedTools } from './bundles.mjs';
+import { bundlesOf, unassignedTools, effectiveBundles } from './bundles.mjs';
 import { projectTool, modelVisibleChars, shortDescription, estimateTokens } from './lite.mjs';
 import { META_TOOLS } from './meta-tools.mjs';
 
@@ -36,6 +36,8 @@ export function tokensOfChars(chars) {
 export function buildSnapshot(rawTools, config) {
   const lite = config?.lite ?? 'mild';
   const shortDesc = config?.shortDescription !== false;
+  // 族归属按「内置族 + 用户自定义族」算，这样面板上自定义族也能看到自己的工具。
+  const table = effectiveBundles(config?.customBundles);
   const tools = (rawTools ?? [])
     .map((tool) => {
       const projected = projectTool(tool, { lite, shortDesc });
@@ -43,7 +45,7 @@ export function buildSnapshot(rawTools, config) {
         name: projected.name,
         chars: modelVisibleChars(projected),
         desc: shortDescription(projected.description, 140),
-        bundles: bundlesOf(projected.name),
+        bundles: bundlesOf(projected.name, table),
       };
     })
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -57,7 +59,7 @@ export function buildSnapshot(rawTools, config) {
     totalChars,
     totalTokens: tokensOfChars(totalChars),
     metaTokens: estimateTokens(META_TOOLS),
-    unassigned: unassignedTools(tools.map((tool) => tool.name)),
+    unassigned: unassignedTools(tools.map((tool) => tool.name), table),
     tools,
   };
 }

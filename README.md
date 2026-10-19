@@ -166,6 +166,37 @@ REA 6.7.0 有 **207 个工具**，比 6.4.0 多 37 个。这些已全部归族�
 
 族是静态清单（`src/bundles.mjs`）。再升级后新增的未归族工具，会出现在 `bundles` 输出的"未归族"里、以及 `node src/cli.mjs status` 的提示里；已归族但当前版本没有的，会显示为缺失而不是报错。
 
+## 自定义分组
+
+内置族按「REA 的能力域」划分，但每个人的常用工具组合不一样。自定义分组让你把任意工具编成一组，之后像内置族一样一键开关。
+
+**在设置页建**：「设置 → REA 工具 → 自定义分组」→ 新建分组 → 在搜索结果里勾选工具 → 保存。
+
+**用 CLI 建**：
+
+```bash
+node src/cli.mjs custom list                       # 看已有的
+node src/cli.mjs custom add --id web-audit --label "网页审计" --tools inspect_web_page,analyze_web_bundle,export_web_scripts
+node src/cli.mjs custom remove web-audit
+```
+
+**直接改配置**：`config.json` 的 `customBundles` 字段：
+
+```json
+{
+  "customBundles": {
+    "web-audit": { "label": "网页审计", "hint": "", "tools": ["inspect_web_page", "analyze_web_bundle"] }
+  }
+}
+```
+
+约束：
+
+- 组名小写字母开头，只含小写字母、数字、`_`、`-`，最长 32；不能与内置族或 `all` 重名。
+- 工具名必须真实存在（按当前 REA 版本校验），否则保存时直接报「未知工具」，不会存下一个调不通的组。
+- 自定义组与内置族**并列**，不改写内置族；同一个工具可以同时属于内置族和多个自定义组。
+- 保存后与改 `activeBundles` 一样走配置监听，约一秒热切换。
+
 ## 三种用法
 
 **A. 默认网关模式（推荐）** — 只挂 4 个元工具（411 tok），一切靠 `call_tool` 打：

@@ -243,6 +243,47 @@ try {
   const badType = await call(handler, { method: 'POST', url: '/rea-lite/active', body: { bundles: 'web' } });
   check('bundles 非数组 → 400', badType.status === 400, badType.payload.error);
 
+  // ── 自定义分组（POST /custom）─────────────────────────────────────────────
+  console.log('\n自定义分组');
+  const madeRes = await call(handler, {
+    method: 'POST',
+    url: '/rea-lite/custom',
+    body: { id: 'my-fav', label: '我的常用', tools: ['address_name', 'xrefs'] },
+  });
+  check('POST /custom 新建分组 → 200', madeRes.status === 200 && madeRes.payload.saved === true, madeRes.payload.error ?? '');
+  const madeBundle = madeRes.payload.state.bundles.find((b) => b.id === 'my-fav');
+  check('新分组出现在状态里并标 custom', madeBundle?.custom === true && madeBundle.label === '我的常用');
+  check('新分组按快照算出了工具数与成本', madeBundle.toolCount === 2 && madeBundle.tokens > 0, `${madeBundle.toolCount} 个 / ${madeBundle.tokens} tok`);
+  const persisted = JSON.parse(fs.readFileSync(tempConfig, 'utf8'));
+  check(
+    '新分组写进了 config.json 的 customBundles',
+    persisted.customBundles?.['my-fav']?.tools?.length === 2,
+    JSON.stringify(persisted.customBundles?.['my-fav']?.tools),
+  );
+  check('写分组不破坏 activeBundles 等既有字段', Array.isArray(persisted.activeBundles) && persisted.lite === 'mild');
+
+  const useCustom = await call(handler, { method: 'POST', url: '/rea-lite/active', body: { bundles: ['my-fav'] } });
+  check('自定义分组能被勾选为激活', useCustom.status === 200 && useCustom.payload.state.allActive === false);
+  check('激活后成本 = 元工具 + 该组两个工具', useCustom.payload.state.activeTokens > useCustom.payload.state.metaTokens);
+
+  const badId = await call(handler, { method: 'POST', url: '/rea-lite/custom', body: { id: 'Bad Name', tools: ['xrefs'] } });
+  check('非法组名 → 400', badId.status === 400 && String(badId.payload.error).includes('不合法'), badId.payload.error);
+  const dupId = await call(handler, { method: 'POST', url: '/rea-lite/custom', body: { id: 'native', tools: ['xrefs'] } });
+  check('与内置族重名 → 400', dupId.status === 400 && String(dupId.payload.error).includes('内置族'), dupId.payload.error);
+  const unknownTool = await call(handler, { method: 'POST', url: '/rea-lite/custom', body: { id: 'ok-id', tools: ['no_such_tool'] } });
+  check('未知工具 → 400 并报出名字', unknownTool.status === 400 && String(unknownTool.payload.error).includes('no_such_tool'), unknownTool.payload.error);
+  const emptyTools = await call(handler, { method: 'POST', url: '/rea-lite/custom', body: { id: 'ok-id', tools: [] } });
+  check('空工具列表 → 400', emptyTools.status === 400, emptyTools.payload.error);
+
+  const delRes = await call(handler, { method: 'POST', url: '/rea-lite/custom', body: { id: 'my-fav', delete: true } });
+  check('删除分组 → 200 且从状态里消失', delRes.status === 200 && !delRes.payload.state.bundles.some((b) => b.id === 'my-fav'));
+  check('删除时同时从 activeBundles 摘掉', !delRes.payload.state.activeBundles.includes('my-fav'), delRes.payload.state.activeBundles.join(','));
+  const delMissing = await call(handler, { method: 'POST', url: '/rea-lite/custom', body: { id: 'ghost', delete: true } });
+  check('删除不存在的分组 → 400', delMissing.status === 400, delMissing.payload.error);
+
+  // 复位，后面的断言按「仅元工具」基线算
+  await call(handler, { method: 'POST', url: '/rea-lite/active', body: { bundles: [] } });
+
   const searchRes = await call(handler, { url: '/rea-lite/tools?q=decompile' });
   check(
     '工具搜索命中反编译类工具并带族标签',

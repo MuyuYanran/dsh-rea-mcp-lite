@@ -8,7 +8,7 @@
 //   4. 其余 JSON-RPC 消息（工具调用、资源、通知）原样双向转发。
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
-import { BUNDLES, ALL_BUNDLE, resolveBundleTools } from './bundles.mjs';
+import { BUNDLES, ALL_BUNDLE, resolveBundleTools, effectiveBundles } from './bundles.mjs';
 import { projectTool, estimateTokens } from './lite.mjs';
 import { META_TOOLS, META_NAMES, handleMetaTool, describeExposedText } from './meta-tools.mjs';
 import { CONFIG_PATH, loadConfig, saveConfig } from './config.mjs';
@@ -56,6 +56,7 @@ class ReaProxy {
       setActiveBundles: (next) => this.setActiveBundles(next),
       callTool: (name, args) => this.callChildTool(name, args),
       lite: () => this.config.lite,
+      bundleTable: () => this.bundleTable(),
       describeExposed: () => describeExposedText(this.metaCtx),
     };
   }
@@ -247,9 +248,14 @@ class ReaProxy {
   }
 
   // ---------- 工具列表 ----------
+  /** 本次生效的族表：内置族 + 配置里的自定义族。 */
+  bundleTable() {
+    return effectiveBundles(this.config.customBundles);
+  }
+
   async buildExposedTools() {
     const all = await this.ensureTools();
-    const wanted = resolveBundleTools(this.activeBundles);
+    const wanted = resolveBundleTools(this.activeBundles, this.bundleTable());
     const allWanted = wanted.has('*');
     const exposed = allWanted ? all : all.filter((tool) => wanted.has(tool.name));
     const projected = exposed.map((tool) => projectTool(tool, { lite: this.config.lite, shortDesc: this.config.shortDescription }));
@@ -261,7 +267,8 @@ class ReaProxy {
   exposedNames() { return this.exposedCache?.names ?? new Set(); }
 
   setActiveBundles(next) {
-    const cleaned = [...new Set((next ?? []).filter((b) => b === ALL_BUNDLE || BUNDLES[b]))];
+    const table = this.bundleTable();
+    const cleaned = [...new Set((next ?? []).filter((b) => b === ALL_BUNDLE || table[b]))];
     const before = this.activeBundles.join(',');
     this.activeBundles = cleaned;
     if (this.config.persistRuntimeSwitch) {

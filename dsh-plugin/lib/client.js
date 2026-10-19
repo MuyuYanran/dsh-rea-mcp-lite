@@ -52,8 +52,24 @@ window.__ModuleLoader__.load({
         toolsUnit: '个',
         showTools: '看族内工具',
         hideTools: '收起',
+        toolsUnavailable: '这一版宿主还没返回工具清单；重启 DSH 后即可展开（不是这里点坏了）。',
         needsSetup: '需目标环境',
         unavailable: '当前 REA 版本无此族',
+        customTitle: '自定义分组',
+        customHint: '把常用的几个工具编成一组，之后像内置族一样一键开关。自定义分组不影响内置族。',
+        customNew: '新建分组',
+        customIdPlaceholder: '组名（小写字母/数字/下划线/连字符）',
+        customLabelPlaceholder: '显示名（可留空，默认用组名）',
+        customSave: '保存分组',
+        customDelete: '删除',
+        customTag: '自定义',
+        customPicked: '已选',
+        customPickHint: '先在下方「查工具」里搜出工具，再从这里勾选。',
+        customPickFromSearch: '提示：下方搜索结果里也能直接勾选要加入的工具。',
+        customSaved: '自定义分组已保存。',
+        customRemoved: '自定义分组已删除。',
+        cancel: '取消',
+        addToCustom: '加入自定义分组',
         toEnableHint: '去「MCP 管理」把 rea 启用后，这里的勾选才会真正生效。',
         savedHot: '已保存，代理已热切换。',
         savedPending: '已保存到配置；REA 服务器未在运行，下次启动时生效。',
@@ -106,8 +122,24 @@ window.__ModuleLoader__.load({
         toolsUnit: 'tools',
         showTools: 'Show tools',
         hideTools: 'Hide',
+        toolsUnavailable: 'This host build does not return the tool list yet; restart DSH to expand it (nothing is broken here).',
         needsSetup: 'needs target setup',
         unavailable: 'not in this REA version',
+        customTitle: 'Custom groups',
+        customHint: 'Group the tools you use most; then toggle that group like a built-in bundle. Built-in bundles are unaffected.',
+        customNew: 'New group',
+        customIdPlaceholder: 'Group id (lowercase letters, digits, _ or -)',
+        customLabelPlaceholder: 'Display name (optional)',
+        customSave: 'Save group',
+        customDelete: 'Delete',
+        customTag: 'custom',
+        customPicked: 'Picked',
+        customPickHint: 'Search a tool below first, then tick it here.',
+        customPickFromSearch: 'Tip: you can also tick tools directly in the search results below.',
+        customSaved: 'Custom group saved.',
+        customRemoved: 'Custom group deleted.',
+        cancel: 'Cancel',
+        addToCustom: 'Add to custom group',
         toEnableHint: 'Enable rea in MCP manager first — these checkboxes only take effect then.',
         savedHot: 'Saved. The proxy hot-swapped the tool list.',
         savedPending: 'Saved to config; the REA server was not running, so it applies on next start.',
@@ -189,6 +221,19 @@ window.__ModuleLoader__.load({
       '.realp-toolchip{display:inline-flex;align-items:center;gap:5px;padding:2px 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);font-size:11px;color:var(--dsw-alias-label-secondary)}',
       '.realp-toolchip-code{color:var(--dsw-alias-label-primary)}',
       '.realp-toolchip .realp-toolchip-cost{color:var(--dsw-alias-label-secondary);opacity:.8}',
+      '.realp-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px}',
+      '.realp-section-head h3{margin:0}',
+      '.realp-btn-danger{color:var(--dsw-alias-state-error-primary);border-color:var(--dsw-alias-state-error-primary)}',
+      '.realp-custom{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding:10px;border-radius:8px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1)}',
+      '.realp-custom-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}',
+      '.realp-custom-id{max-width:220px}',
+      '.realp-custom-pick{display:flex;flex-wrap:wrap;gap:4px;max-height:180px;overflow:auto}',
+      '.realp-toolchip-on{border-color:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary)}',
+      '.realp-toolchip input{margin:0}',
+      '.realp-row-custom{align-items:center;gap:8px}',
+      '.realp-tag-custom{background:transparent;border:1px solid var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}',
+      '.realp-tool-head{display:flex;align-items:flex-start;gap:6px}',
+      '.realp-tool-picked{border-color:var(--dsw-alias-brand-primary)}',
       '.realp-input{width:100%;height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;outline:none}',
       '.realp-input:focus{border-color:var(--dsw-alias-brand-primary)}',
       '.realp-note{padding:9px 12px;border-radius:8px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:12px}',
@@ -276,6 +321,11 @@ window.__ModuleLoader__.load({
       var [query, setQuery] = useState('');
       var [matches, setMatches] = useState(null);
       var [expanded, setExpanded] = useState({});
+      var [customOpen, setCustomOpen] = useState(false);
+      var [customId, setCustomId] = useState('');
+      var [customLabel, setCustomLabel] = useState('');
+      var [customPicked, setCustomPicked] = useState([]);
+      var [customError, setCustomError] = useState('');
       var pollRef = useRef(null);
 
       var t = makeT(locale);
@@ -385,6 +435,53 @@ window.__ModuleLoader__.load({
           .catch(function (failure) {
             setError(String(failure.message || failure));
           });
+      }
+
+      /** 保存自定义分组：只提交 id/label/tools，工具存在性由宿主用快照校验。 */
+      function saveCustom() {
+        setCustomError('');
+        setBusy(true);
+        api('custom', { id: customId.trim(), label: customLabel.trim(), tools: customPicked })
+          .then(function (payload) {
+            setState(payload.state);
+            setCustomOpen(false);
+            setCustomId('');
+            setCustomLabel('');
+            setCustomPicked([]);
+            setNote(t('customSaved'));
+          })
+          .catch(function (failure) {
+            setCustomError(String(failure.message || failure));
+          })
+          .then(function () {
+            setBusy(false);
+          });
+      }
+
+      function removeCustom(id) {
+        setCustomError('');
+        setBusy(true);
+        api('custom', { id: id, delete: true })
+          .then(function (payload) {
+            setState(payload.state);
+            setNote(t('customRemoved'));
+          })
+          .catch(function (failure) {
+            setError(String(failure.message || failure));
+          })
+          .then(function () {
+            setBusy(false);
+          });
+      }
+
+      function togglePick(name) {
+        setCustomPicked(function (previous) {
+          return previous.indexOf(name) >= 0
+            ? previous.filter(function (entry) {
+                return entry !== name;
+              })
+            : previous.concat([name]);
+        });
       }
 
       if (state === null) {
@@ -532,24 +629,150 @@ window.__ModuleLoader__.load({
                       : null,
                   ),
                   bundle.hint ? h('div', { className: 'realp-row-hint' }, bundle.hint) : null,
-                  expanded[bundle.id] && bundle.toolCount > 0
-                    ? h(
-                        'div',
-                        { className: 'realp-toolgrid' },
-                        (bundle.tools || []).map(function (tool) {
-                          return h(
-                            'span',
-                            { className: 'realp-toolchip', key: tool.name },
-                            h('code', null, tool.name),
-                            h('span', { className: 'realp-toolchip-cost' }, '~' + tool.tokens),
-                          );
-                        }),
-                      )
+                  expanded[bundle.id]
+                    ? Array.isArray(bundle.tools) && bundle.tools.length > 0
+                      ? h(
+                          'div',
+                          { className: 'realp-toolgrid' },
+                          bundle.tools.map(function (tool) {
+                            return h(
+                              'span',
+                              { className: 'realp-toolchip', key: tool.name },
+                              h('code', null, tool.name),
+                              h('span', { className: 'realp-toolchip-cost' }, '~' + tool.tokens),
+                            );
+                          }),
+                        )
+                      : h('div', { className: 'realp-row-hint' }, t('toolsUnavailable'))
                     : null,
                 ),
               );
             }),
           ),
+        ),
+
+        h(
+          'div',
+          { className: 'realp-section' },
+          h(
+            'div',
+            { className: 'realp-section-head' },
+            h('h3', null, t('customTitle')),
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'realp-btn',
+                disabled: busy || !state.writable,
+                onClick: function () {
+                  setCustomOpen(!customOpen);
+                  setCustomError('');
+                },
+              },
+              customOpen ? t('cancel') : t('customNew'),
+            ),
+          ),
+          h('p', { className: 'realp-section-hint' }, t('customHint')),
+          customOpen
+            ? h(
+                'div',
+                { className: 'realp-custom' },
+                h(
+                  'div',
+                  { className: 'realp-custom-row' },
+                  h('input', {
+                    className: 'realp-input realp-custom-id',
+                    value: customId,
+                    placeholder: t('customIdPlaceholder'),
+                    onChange: function (event) { setCustomId(event.target.value); },
+                  }),
+                  h('input', {
+                    className: 'realp-input',
+                    value: customLabel,
+                    placeholder: t('customLabelPlaceholder'),
+                    onChange: function (event) { setCustomLabel(event.target.value); },
+                  }),
+                ),
+                h(
+                  'div',
+                  { className: 'realp-custom-pick' },
+                  (matches || []).length === 0
+                    ? h('div', { className: 'realp-row-hint' }, t('customPickHint'))
+                    : matches.map(function (tool) {
+                        var picked = customPicked.indexOf(tool.name) >= 0;
+                        return h(
+                          'label',
+                          { className: 'realp-toolchip' + (picked ? ' realp-toolchip-on' : ''), key: tool.name },
+                          h('input', {
+                            type: 'checkbox',
+                            checked: picked,
+                            onChange: function () { togglePick(tool.name); },
+                          }),
+                          h('code', null, tool.name),
+                        );
+                      }),
+                ),
+                h(
+                  'div',
+                  { className: 'realp-custom-row' },
+                  h('span', { className: 'realp-row-hint' }, t('customPicked') + ' ' + customPicked.length),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'realp-btn realp-btn-primary',
+                      disabled: busy || customId.trim() === '' || customPicked.length === 0,
+                      onClick: saveCustom,
+                    },
+                    t('customSave'),
+                  ),
+                ),
+                customError !== ''
+                  ? h('div', { className: 'realp-note realp-note-error' }, customError)
+                  : null,
+                h('div', { className: 'realp-row-hint' }, t('customPickFromSearch')),
+              )
+            : null,
+          state.bundles.filter(function (bundle) {
+            return bundle.custom === true;
+          }).length === 0
+            ? null
+            : h(
+                'div',
+                { className: 'realp-list' },
+                state.bundles
+                  .filter(function (bundle) {
+                    return bundle.custom === true;
+                  })
+                  .map(function (bundle) {
+                    return h(
+                      'div',
+                      { className: 'realp-row realp-row-custom', key: 'c-' + bundle.id },
+                      h(
+                        'div',
+                        { className: 'realp-grow' },
+                        h(
+                          'div',
+                          { className: 'realp-row-title' },
+                          h('span', null, bundle.label),
+                          h('code', null, bundle.id),
+                          h('span', { className: 'realp-tag realp-tag-custom' }, t('customTag')),
+                          h('span', { className: 'realp-tag' }, bundle.toolCount + ' ' + t('toolsUnit')),
+                        ),
+                      ),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'realp-btn realp-btn-danger',
+                          disabled: busy || !state.writable,
+                          onClick: function () { removeCustom(bundle.id); },
+                        },
+                        t('customDelete'),
+                      ),
+                    );
+                  }),
+              ),
         ),
 
         h(
@@ -570,20 +793,33 @@ window.__ModuleLoader__.load({
                   'div',
                   { className: 'realp-tools' },
                   matches.map(function (tool) {
+                    var picked = customPicked.indexOf(tool.name) >= 0;
                     return h(
                       'div',
-                      { className: 'realp-tool', key: tool.name },
+                      { className: 'realp-tool' + (picked ? ' realp-tool-picked' : ''), key: tool.name },
                       h(
                         'div',
-                        null,
-                        h('code', null, tool.name),
+                        { className: 'realp-tool-head' },
+                        customOpen
+                          ? h('input', {
+                              type: 'checkbox',
+                              checked: picked,
+                              title: t('addToCustom'),
+                              onChange: function () { togglePick(tool.name); },
+                            })
+                          : null,
                         h(
                           'div',
-                          { style: { marginTop: '3px', display: 'flex', gap: '4px', flexWrap: 'wrap' } },
-                          (tool.bundles.length ? tool.bundles : [t('noBundle')]).map(function (name) {
-                            return h('span', { className: 'realp-tag', key: name }, name);
-                          }),
-                          h('span', { className: 'realp-tag' }, '~' + tool.tokens + ' tok'),
+                          { className: 'realp-grow' },
+                          h('code', null, tool.name),
+                          h(
+                            'div',
+                            { style: { marginTop: '3px', display: 'flex', gap: '4px', flexWrap: 'wrap' } },
+                            (tool.bundles.length ? tool.bundles : [t('noBundle')]).map(function (name) {
+                              return h('span', { className: 'realp-tag', key: name }, name);
+                            }),
+                            h('span', { className: 'realp-tag' }, '~' + tool.tokens + ' tok'),
+                          ),
                         ),
                       ),
                       h('p', { title: tool.desc }, tool.desc),

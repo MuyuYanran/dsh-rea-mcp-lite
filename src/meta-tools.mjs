@@ -66,13 +66,15 @@ const fail = (message) => ({ content: [{ type: 'text', text: message }], isError
 export async function handleMetaTool(name, args, ctx) {
   const tools = ctx.allTools() ?? [];
   const byName = new Map(tools.map((t) => [t.name, t]));
+  // 生效的族表 = 内置族 + 用户自定义族（ctx 没提供时退回只有内置族）。
+  const table = typeof ctx.bundleTable === 'function' ? ctx.bundleTable() : BUNDLES;
 
   if (name === 'bundles') {
     const action = args?.action ?? 'list';
     if (action !== 'list') {
       const requested = Array.isArray(args?.bundles) ? args.bundles : [];
-      const unknown = requested.filter((b) => b !== ALL_BUNDLE && !BUNDLES[b]);
-      if (unknown.length) return fail(`未知功能族：${unknown.join(', ')}。已知：${Object.keys(BUNDLES).join(', ')}, ${ALL_BUNDLE}`);
+      const unknown = requested.filter((b) => b !== ALL_BUNDLE && !table[b]);
+      if (unknown.length) return fail(`未知功能族：${unknown.join(', ')}。已知：${Object.keys(table).join(', ')}, ${ALL_BUNDLE}`);
       let next;
       if (action === 'set') next = [...new Set(requested)];
       else if (action === 'activate') next = [...new Set([...ctx.activeBundles(), ...requested])];
@@ -105,10 +107,10 @@ export async function handleMetaTool(name, args, ctx) {
     }
     scored.sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name));
     if (!scored.length) {
-      return text(`没有匹配「${query}」的工具。可用功能族：${Object.keys(BUNDLES).join(', ')}（用 bundles action=set 加载整族）。`);
+      return text(`没有匹配「${query}」的工具。可用功能族：${Object.keys(table).join(', ')}（用 bundles action=set 加载整族）。`);
     }
     const lines = scored.slice(0, limit).map(({ tool }) => {
-      const families = bundlesOf(tool.name).join('/') || '未归族';
+      const families = bundlesOf(tool.name, table).join('/') || '未归族';
       const required = tool.inputSchema?.required;
       const requiredText = Array.isArray(required) && required.length ? `必填: ${required.join(', ')}` : '无必填参数';
       const loaded = exposed.has(tool.name) ? '★已加载' : '';
@@ -122,7 +124,7 @@ export async function handleMetaTool(name, args, ctx) {
   if (name === 'tool_schema') {
     const target = byName.get(String(args?.tool ?? ''));
     if (!target) return fail(`没有名为 ${args?.tool} 的工具。用 search_tools 查找。`);
-    const families = bundlesOf(target.name);
+    const families = bundlesOf(target.name, table);
     return text(
       `工具：${target.name}\n功能族：${families.join(', ') || '未归族'}\n` +
       `已加载：${ctx.exposedNames().has(target.name) ? '是' : '否（可直接用 call_tool 调用）'}\n\n` +
@@ -154,17 +156,20 @@ export async function describeExposedText(ctx) {
   const metaTokens = estimateTokens(META_TOOLS);
   const totalTokens = estimateTokens(projected) + metaTokens;
 
-  const describe = (hit) => describeBundles(names, (list) =>
-    estimateTokens(tools.filter((t) => list.includes(t.name)).map((t) => projectTool(t, { lite: ctx.lite() }))),
+  const describe = (hit) => describeBundles(
+    names,
+    (list) => estimateTokens(tools.filter((t) => list.includes(t.name)).map((t) => projectTool(t, { lite: ctx.lite() }))),
+    typeof ctx.bundleTable === 'function' ? ctx.bundleTable() : undefined,
   ).map((b) => {
     const isActive = active.includes(b.name) || active.includes(ALL_BUNDLE);
     const flag = isActive ? '[已加载]' : '';
+    const tag = b.custom ? '（自定义）' : '';
     const hint = b.hint ? `  ${b.hint}` : '';
-    return `- ${b.name.padEnd(9)} ${String(b.toolCount).padStart(3)} 个  ~${String(b.estTokens).padStart(6)} tok ${flag}  ${b.label}${hint}`;
+    return `- ${b.name.padEnd(9)} ${String(b.toolCount).padStart(3)} 个  ~${String(b.estTokens).padStart(6)} tok ${flag}  ${b.label}${tag}${hint}`;
   });
 
   const lines = describe();
-  const unassigned = unassignedTools(names);
+  const unassigned = unassignedTools(names, typeof ctx.bundleTable === 'function' ? ctx.bundleTable() : undefined);
   const activeText = active.length ? active.join(', ') : '（无，仅 4 个元工具）';
   return [
     `REA 工具共 ${names.length} 个；当前加载：${activeText}`,

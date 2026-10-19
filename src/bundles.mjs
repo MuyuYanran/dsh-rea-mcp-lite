@@ -154,45 +154,111 @@ export const BUNDLES = {
 /** 「全部」是一个虚拟族：始终匹配所有工具。 */
 export const ALL_BUNDLE = 'all';
 
-/** 某工具所属的全部族名（不含 all）。 */
-export function bundlesOf(toolName) {
-  return Object.entries(BUNDLES)
-    .filter(([, def]) => def.tools.includes(toolName))
+/** 自定义族 id 的合法形状：小写字母开头，只含小写字母/数字/下划线/连字符。 */
+export const BUNDLE_ID_RE = /^[a-z][a-z0-9_-]{0,31}$/u;
+
+/** 不允许占用的 id（与虚拟族冲突）。 */
+const RESERVED_IDS = new Set([ALL_BUNDLE]);
+
+/**
+ * 合并内置族与用户自定义族，得到本次实际生效的族表。
+ *
+ * 自定义族与内置族是**并列**关系，不是覆盖：内置族由代码维护、随 REA 版本演进，
+ * 让用户改写它们会在升级时产生难以解释的漂移；自定义族是用户自己的视角，
+ * 想怎么切都行（同一个工具可以既在 native 里又在自定义族里——内置族本来就有这种重叠）。
+ *
+ * @param {object} custom 配置里的 customBundles：{ id: { label?, hint?, tools? } }
+ * @returns 合并后的族表（内置族定义原样保留，自定义族多带 custom: true）
+ */
+export function effectiveBundles(custom) {
+  const merged = { ...BUNDLES };
+  if (custom === null || typeof custom !== 'object') return merged;
+  for (const [id, def] of Object.entries(custom)) {
+    if (!BUNDLE_ID_RE.test(id) || RESERVED_IDS.has(id)) continue;
+    if (def === null || typeof def !== 'object') continue;
+    const tools = Array.isArray(def.tools) ? [...new Set(def.tools.filter((t) => typeof t === 'string' && t !== ''))] : [];
+    merged[id] = {
+      label: typeof def.label === 'string' && def.label.trim() !== '' ? def.label.trim() : id,
+      hint: typeof def.hint === 'string' ? def.hint : '',
+      custom: true,
+      tools,
+    };
+  }
+  return merged;
+}
+
+/**
+ * 校验一条自定义族定义，返回规范化结果或抛错。
+ * @param {object} input { id, label?, hint?, tools }
+ * @param {string[]} knownTools 当前 REA 版本实际提供的工具名；为空数组时不校验工具名是否存在
+ */
+export function normalizeCustomBundle(input, knownTools) {
+  const id = typeof input?.id === 'string' ? input.id.trim() : '';
+  if (!BUNDLE_ID_RE.test(id)) {
+    throw new Error(`族名不合法：${id || '(空)'}（要求小写字母开头，只含小写字母、数字、下划线、连字符，最长 32）`);
+  }
+  if (RESERVED_IDS.has(id)) throw new Error(`族名 ${id} 是保留字`);
+  if (BUNDLES[id]) throw new Error(`族名 ${id} 与内置族冲突，换个名字`);
+  const rawTools = Array.isArray(input?.tools) ? input.tools.filter((t) => typeof t === 'string' && t !== '') : [];
+  const known = new Set(knownTools ?? []);
+  if (known.size > 0) {
+    const unknown = rawTools.filter((t) => !known.has(t));
+    if (unknown.length > 0) {
+      throw new Error(`未知工具：${unknown.slice(0, 5).join(', ')}${unknown.length > 5 ? ` 等 ${unknown.length} 个` : ''}`);
+    }
+  }
+  const tools = [...new Set(rawTools)];
+  if (tools.length === 0) throw new Error('至少选一个工具');
+  return {
+    id,
+    label: typeof input?.label === 'string' && input.label.trim() !== '' ? input.label.trim() : id,
+    hint: typeof input?.hint === 'string' ? input.hint.trim() : '',
+    tools,
+  };
+}
+
+/** 某工具所属的全部族名（不含 all）。传 defs 则按合并后的族表算，否则只看内置族。 */
+export function bundlesOf(toolName, defs) {
+  return Object.entries(defs ?? BUNDLES)
+    .filter(([, def]) => (def.tools ?? []).includes(toolName))
     .map(([name]) => name);
 }
 
 /**
  * 计算给定族集合要暴露的工具名集合。
  * @param {string[]} bundleNames 族名数组，可含 'all'
+ * @param {object} defs 族表（默认内置族）
  */
-export function resolveBundleTools(bundleNames) {
+export function resolveBundleTools(bundleNames, defs) {
+  const table = defs ?? BUNDLES;
   const wanted = new Set();
   for (const name of bundleNames ?? []) {
     if (name === ALL_BUNDLE) return new Set(['*']);
-    const def = BUNDLES[name];
+    const def = table[name];
     if (!def) continue;
-    for (const t of def.tools) wanted.add(t);
+    for (const t of def.tools ?? []) wanted.add(t);
   }
   return wanted;
 }
 
 /** 供 `bundles` 元工具使用：每个族的工具数、估算 token 成本、以及在全部工具中的命中数。 */
-export function describeBundles(allToolNames, costOf) {
+export function describeBundles(allToolNames, costOf, defs) {
   const known = new Set(allToolNames);
-  return Object.entries(BUNDLES).map(([name, def]) => {
-    const hit = def.tools.filter((t) => known.has(t));
+  return Object.entries(defs ?? BUNDLES).map(([name, def]) => {
+    const hit = (def.tools ?? []).filter((t) => known.has(t));
     return {
       name,
       label: def.label,
       hint: def.hint,
+      custom: def.custom === true,
       toolCount: hit.length,
-      missing: def.tools.filter((t) => !known.has(t)),
+      missing: (def.tools ?? []).filter((t) => !known.has(t)),
       estTokens: costOf(hit),
     };
   });
 }
 
 /** 未被任何族收录的工具（REA 升级后可能出现）。 */
-export function unassignedTools(allToolNames) {
-  return allToolNames.filter((t) => bundlesOf(t).length === 0);
+export function unassignedTools(allToolNames, defs) {
+  return allToolNames.filter((t) => bundlesOf(t, defs).length === 0);
 }

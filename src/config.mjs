@@ -15,6 +15,8 @@ export const DEFAULT_REA_LAUNCHER =
 export const DEFAULTS = {
   mode: 'gateway',
   activeBundles: [],
+  // 用户自定义的族：{ <id>: { label?, hint?, tools: [...] } }。与内置族并列，不是覆盖。
+  customBundles: {},
   metaTools: true,
   lite: 'mild',
   shortDescription: true,
@@ -34,11 +36,13 @@ export function loadConfig() {
   } catch (error) {
     if (error.code !== 'ENOENT') process.stderr.write(`[rea-mcp-lite] 读取配置失败，使用默认值：${error.message}\n`);
   }
+  const custom = user.customBundles;
   return {
     ...DEFAULTS,
     ...user,
     child: { ...DEFAULTS.child, ...(user.child ?? {}), env: { ...DEFAULTS.child.env, ...(user.child?.env ?? {}) } },
     activeBundles: Array.isArray(user.activeBundles) ? user.activeBundles : DEFAULTS.activeBundles,
+    customBundles: custom !== null && typeof custom === 'object' && !Array.isArray(custom) ? custom : {},
   };
 }
 
@@ -46,6 +50,7 @@ export function saveConfig(config) {
   const payload = {
     mode: config.mode,
     activeBundles: config.activeBundles,
+    customBundles: config.customBundles ?? {},
     metaTools: config.metaTools,
     lite: config.lite,
     shortDescription: config.shortDescription,

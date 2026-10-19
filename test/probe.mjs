@@ -144,6 +144,24 @@ try {
   check('all 族暴露全部 170 个工具', allNames.length === 174, `${allNames.length} 个（170 + 4 元工具）`);
   console.log(`  全量加载（裁剪后）上下文成本：~${allTokens} tok`);
   await client.request('tools/call', { name: 'bundles', arguments: { action: 'set', bundles: [] } });
+
+  // 10. 自定义功能族：用户自己把工具编成一组，并能像内置族一样开关
+  const custom = { 'my-re': { label: '我的常用', hint: '手工挑的', tools: ['address_name', 'procedure_pseudo_code', 'xrefs'] } };
+  fs.writeFileSync(TEST_CONFIG, JSON.stringify({ activeBundles: [], customBundles: custom }, null, 2));
+  await sleep(600); // 等代理 fs.watch 重载配置
+  const customRes = await client.request('tools/call', { name: 'bundles', arguments: { action: 'activate', bundles: ['my-re'] } });
+  const customText = textOf(customRes.result);
+  check('自定义族能被 activate（不报未知族）', !customText.includes('未知功能族'), customText.split('\n')[0] ?? '');
+  check('自定义族在 bundles 输出里标为自定义', customText.includes('（自定义）'));
+  const list5 = await client.request('tools/list');
+  const META = ['bundles', 'call_tool', 'search_tools', 'tool_schema'];
+  const customNames = (list5.result?.tools ?? []).map((t) => t.name).filter((n) => !META.includes(n));
+  check(
+    '激活自定义族后只暴露它那 3 个工具',
+    customNames.length === 3 && ['address_name', 'procedure_pseudo_code', 'xrefs'].every((n) => customNames.includes(n)),
+    customNames.join(', '),
+  );
+  await client.request('tools/call', { name: 'bundles', arguments: { action: 'set', bundles: [] } });
 } catch (error) {
   check('测试流程未抛错', false, String(error?.stack ?? error));
 } finally {
