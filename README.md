@@ -133,21 +133,38 @@ cp config.example.json config.json   # Windows: Copy-Item config.example.json co
 
 ## 功能族
 
+下图按 **REA 6.4.0（170 个工具）** 统计；6.5.0/6.7.0 新增的族见下方「版本适配」。
+
 | 族 | 工具数 | 约 token | 内容 |
 | --- | --- | --- | --- |
-| `nav` | 22 | 3.2k | 会话与导航（打开目标、游标、字节、段表） |
+| `nav` | 22 | 3.2k | 会话与导航（打开目标、游标、字节、段表、字节搜索） |
 | `native` | 44 | 5.6k | 原生静态分析（伪代码、汇编、交叉引用、注解） |
 | `apple` | 12 | 1.9k | Objective-C / Swift / plist / 动态库 |
 | `managed` | 7 | 5.5k | .NET / 托管程序集 / 托管-原生边界 |
 | `js` | 13 | 12.3k | JavaScript / Electron 应用图与语义追踪 |
 | `web` | 15 | 2.7k | 网页/浏览器（CDP、网络、脚本、sourcemap） |
-| `android` | 36 | 4.3k | Android / ADB / JEB（设备、日志、APK） |
+| `android` | 36 | 4.3k | Android / ADB / JEB（设备、日志、APK、Flutter、HarmonyOS） |
 | `evidence` | 16 | 12.2k | 证据治理（对比、验证、未知项、重建账本） |
 | `runtime` | 11 | 6.2k | 运行时捕获与包体（进程、固件、EVM） |
 | `all` | 170 | 49.4k | 全部（等价于直连 REA，但 schema 更瘦） |
 
 > 族之间有重叠（`apple` 的工具也属 `native`，`runtime` 的部分工具同属 `js`/`web`），所以各族 token 相加 > `all`。
-> 族是一份静态清单（`src/bundles.mjs`）。REA 升级后新增的工具会出现在 `bundles` 输出的"未归族"里，手工归入即可。
+
+### 版本适配（REA 6.5.0 起）
+
+REA 6.7.0 有 **207 个工具**，比 6.4.0 多 37 个。这些已全部归族，另立三个新族：
+
+| 族 | 工具数 | 内容 | 注意 |
+| --- | --- | --- | --- |
+| `debug` | 20 | Frida / GDB / Rizin / Cutter 动态调试 | 需目标进程或设备就绪；会改目标状态 |
+| `formats` | 7 | Go / Rust / WASM / SQLite / Electron fuses / objdump | 部分依赖外部工具链 |
+| `capture` | 6 | PCAP / TShark / sigrok 逻辑信号 | 需装 TShark 4.x / sigrok-cli |
+
+`search_bytes` 归入 `nav`，`identify_flutter_build` / `inspect_dart_aot` / `project_harmony_application_graph` 归入 `android`。
+
+**用旧版 REA 时**，这三个族显示 `0 个工具` 并标注「当前 REA 版本无此族」——那不是坏了，是版本没有这些能力。
+
+族是静态清单（`src/bundles.mjs`）。再升级后新增的未归族工具，会出现在 `bundles` 输出的"未归族"里、以及 `node src/cli.mjs status` 的提示里；已归族但当前版本没有的，会显示为缺失而不是报错。
 
 ## 三种用法
 
@@ -185,8 +202,10 @@ node src/cli.mjs status    # 当前配置
 仓库里的 `dsh-plugin/` 是一个 DSH 插件（细节见 [dsh-plugin/README.md](dsh-plugin/README.md)），装好后在 **设置 → REA 工具** 多出一页：
 
 - 勾选框切换功能族，每个族标注工具数与约 token；顶部合计「元工具 + 已勾选族」以及相对全量加载省下的百分比。
+- **族内工具可展开**：点「看族内工具」列出该族每个工具名与各自成本，不用为"这族到底有什么"去翻 REA 文档。
+- **风险与版本标记**：`debug`/`capture`/`formats` 标「需目标环境」；当前 REA 版本没有的族标「当前 REA 版本无此族」（而不是让你以为勾了没反应）。
 - **会话内实测**：DSH 工具注册表里真实存在的 `mcp__rea__*` 数量与字符数 —— 保存后约 1 秒跟随变化，用来确认热切换真的生效。
-- 状态灯显示 rea 服务器是 已连接 / 已在 MCP 管理里停用 / 启用但未连上（后者多半是子进程起不来，看「MCP 管理」里的启动错误）。
+- 状态灯显示 rea 服务器是 已连接 / 已在 MCP 管理里停用 / 启用但未连上；被停用时额外给出"去 MCP 管理启用"的指引。
 - 「查工具属于哪个族」搜索框：在 170 个工具里按名字或说明搜。
 
 ```bash

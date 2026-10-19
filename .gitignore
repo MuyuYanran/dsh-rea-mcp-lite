@@ -14,3 +14,7 @@ probe/client-readme-zh.txt
 probe/llm-deepseek.js
 
 node_modules/
+
+# 临时/废弃文件（含 pnpm 探测污染），不提交
+.trash/
+.rea-probe/

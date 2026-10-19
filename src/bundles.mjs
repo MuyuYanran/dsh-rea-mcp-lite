@@ -1,6 +1,10 @@
-// REA 170 个 MCP 工具的「功能族」划分。
-// 用显式工具名列表（从 REA 6.4.0 实际 tools/list 导出），便于核对与演进：
-// 若 REA 升级后新增工具，未归族者会在 `bundles` 元工具里以 unassigned 形式报出来。
+// REA MCP 工具的「功能族」划分。
+// 用显式工具名列表（从 REA 实际 tools/list 导出：6.4.0 = 170 个，6.7.0 = 207 个），
+// 便于核对与演进：若 REA 再升级后新增工具，未归族者会在 `bundles` 元工具里以
+// unassigned 形式报出来，也会在 `cli.mjs status` 里提示。
+//
+// 版本漂移约定：保留旧版本已删除的工具名没有坏处（describeBundles 会把它们报成
+// missing 而不是报错），但**新增工具必须归族**，否则用户在面板上看不到它属于哪族。
 
 export const BUNDLES = {
   nav: {
@@ -10,6 +14,7 @@ export const BUNDLES = {
       'binary_session', 'open_binary', 'close_binary', 'list_documents', 'current_document',
       'current_address', 'current_procedure', 'get_navigation_context', 'goto_address',
       'next_address', 'prev_address', 'address_name', 'address_to_file_offset', 'read_bytes',
+      'search_bytes',
       'list_architectures', 'list_segments', 'binary_overview', 'inspect_address_context',
       'list_bookmarks', 'set_bookmark', 'unset_bookmark', 'inspect_analysis_view',
     ],
@@ -86,6 +91,42 @@ export const BUNDLES = {
       'inspect_android_package', 'project_android_application_graph', 'search_android_classes',
       'trace_android_references', 'decompile_jeb_item', 'inspect_jeb_client', 'list_jeb_units',
       'open_jeb_project', 'inspect_apktool_client',
+      // 6.5.0+ 新增：Flutter/Dart AOT 与 HarmonyOS
+      'identify_flutter_build', 'inspect_dart_aot', 'project_harmony_application_graph',
+    ],
+  },
+  debug: {
+    label: '动态调试（Frida / GDB / Rizin / Cutter）',
+    hint: '附加或启动调试会话、下断点、跑命令、注入脚本。REA 6.5.0 起新增，单独成族是因为它需要目标环境已就绪、且风险高于静态分析。',
+    tools: [
+      // Frida
+      'list_frida_devices', 'list_frida_processes', 'start_frida_session', 'resume_frida_session',
+      'close_frida_session', 'frida_session_status', 'load_frida_script', 'unload_frida_script',
+      'instrument_with_frida',
+      // GDB
+      'start_gdb_session', 'gdb_console', 'gdb_session_status', 'close_gdb_session',
+      // Rizin
+      'execute_rizin_command', 'start_rizin_debug_session', 'rizin_debug_command',
+      'rizin_debug_session_status', 'close_rizin_debug_session',
+      // Cutter
+      'list_cutter_sessions', 'cutter_command',
+    ],
+  },
+  formats: {
+    label: '文件格式专项（Go / Rust / WASM / SQLite / Electron fuses）',
+    hint: '按语言/容器抽取构建信息与依赖清单。REA 6.5.0 起新增，按需加载即可。',
+    tools: [
+      'inspect_go_binary', 'inspect_rust_binary', 'inspect_sqlite_database',
+      'inspect_electron_fuses', 'inspect_wasm_artifact', 'compare_wasm_interfaces',
+      'inspect_with_objdump',
+    ],
+  },
+  capture: {
+    label: '抓包与信号分析（PCAP / TShark / sigrok）',
+    hint: '读现有抓包文件、发现协议字段、解码逻辑信号录音。REA 6.5.0 起新增。',
+    tools: [
+      'inspect_packet_capture', 'inspect_packet_fields', 'inspect_pcap_capture',
+      'inspect_pcap_client', 'inspect_signal_decoders', 'decode_signal_recording',
     ],
   },
   evidence: {

@@ -50,6 +50,11 @@ window.__ModuleLoader__.load({
         bundleHint: '勾选即写入 config.json，代理监听文件变化后热切换，无需重启 DSH。',
         active: '已加载',
         toolsUnit: '个',
+        showTools: '看族内工具',
+        hideTools: '收起',
+        needsSetup: '需目标环境',
+        unavailable: '当前 REA 版本无此族',
+        toEnableHint: '去「MCP 管理」把 rea 启用后，这里的勾选才会真正生效。',
         savedHot: '已保存，代理已热切换。',
         savedPending: '已保存到配置；REA 服务器未在运行，下次启动时生效。',
         serverState: 'REA 服务器',
@@ -99,6 +104,11 @@ window.__ModuleLoader__.load({
         bundleHint: 'Checking a bundle writes config.json; the proxy watches the file and hot-swaps without a restart.',
         active: 'loaded',
         toolsUnit: 'tools',
+        showTools: 'Show tools',
+        hideTools: 'Hide',
+        needsSetup: 'needs target setup',
+        unavailable: 'not in this REA version',
+        toEnableHint: 'Enable rea in MCP manager first — these checkboxes only take effect then.',
         savedHot: 'Saved. The proxy hot-swapped the tool list.',
         savedPending: 'Saved to config; the REA server was not running, so it applies on next start.',
         serverState: 'REA server',
@@ -171,6 +181,14 @@ window.__ModuleLoader__.load({
       '.realp-row-hint{color:var(--dsw-alias-label-secondary);font-size:12px;margin-top:2px}',
       '.realp-tag{display:inline-flex;align-items:center;height:19px;padding:0 7px;border-radius:5px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:11px}',
       '.realp-tag-on{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary-inverted,#fff)}',
+      '.realp-tag-warn{background:transparent;border:1px solid var(--dsw-alias-state-warn-primary);color:var(--dsw-alias-state-warn-primary)}',
+      '.realp-tag-off{background:transparent;border:1px dashed var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);opacity:.75}',
+      '.realp-link{appearance:none;background:none;border:0;padding:0;margin-left:2px;color:var(--dsw-alias-brand-primary);font:inherit;font-size:11px;cursor:pointer}',
+      '.realp-link:hover{text-decoration:underline}',
+      '.realp-toolgrid{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}',
+      '.realp-toolchip{display:inline-flex;align-items:center;gap:5px;padding:2px 6px;border-radius:5px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);font-size:11px;color:var(--dsw-alias-label-secondary)}',
+      '.realp-toolchip-code{color:var(--dsw-alias-label-primary)}',
+      '.realp-toolchip .realp-toolchip-cost{color:var(--dsw-alias-label-secondary);opacity:.8}',
       '.realp-input{width:100%;height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;outline:none}',
       '.realp-input:focus{border-color:var(--dsw-alias-brand-primary)}',
       '.realp-note{padding:9px 12px;border-radius:8px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:12px}',
@@ -257,6 +275,7 @@ window.__ModuleLoader__.load({
       var [busy, setBusy] = useState(false);
       var [query, setQuery] = useState('');
       var [matches, setMatches] = useState(null);
+      var [expanded, setExpanded] = useState({});
       var pollRef = useRef(null);
 
       var t = makeT(locale);
@@ -283,6 +302,14 @@ window.__ModuleLoader__.load({
             setError(String(failure.message || failure));
           });
       }, []);
+
+      var toggleExpand = function (id) {
+        setExpanded(function (previous) {
+          var next = Object.assign({}, previous);
+          next[id] = !next[id];
+          return next;
+        });
+      };
 
       useEffect(
         function () {
@@ -401,6 +428,9 @@ window.__ModuleLoader__.load({
         (state.warnings || []).map(function (warning, index) {
           return h('div', { className: 'realp-note realp-note-warn', key: 'warn-' + index }, warning);
         }),
+        state.server && state.server.phase === 'disabled'
+          ? h('div', { className: 'realp-note realp-note-warn' }, t('toEnableHint'))
+          : null,
         state.writable === false ? h('div', { className: 'realp-note realp-note-warn' }, t('readOnly')) : null,
 
         h(
@@ -481,8 +511,41 @@ window.__ModuleLoader__.load({
                     h('code', null, bundle.id),
                     h('span', { className: 'realp-tag' + (bundle.active ? ' realp-tag-on' : '') }, bundle.toolCount + ' ' + t('toolsUnit')),
                     h('span', { className: 'realp-tag' }, tokens(bundle.tokens)),
+                    bundle.risky ? h('span', { className: 'realp-tag realp-tag-warn' }, t('needsSetup')) : null,
+                    bundle.unavailable
+                      ? h('span', { className: 'realp-tag realp-tag-off' }, t('unavailable'))
+                      : null,
+                    bundle.toolCount > 0
+                      ? h(
+                          'button',
+                          {
+                            type: 'button',
+                            className: 'realp-link',
+                            onClick: function (event) {
+                              event.preventDefault();
+                              event.stopPropagation();
+                              toggleExpand(bundle.id);
+                            },
+                          },
+                          expanded[bundle.id] ? t('hideTools') : t('showTools'),
+                        )
+                      : null,
                   ),
                   bundle.hint ? h('div', { className: 'realp-row-hint' }, bundle.hint) : null,
+                  expanded[bundle.id] && bundle.toolCount > 0
+                    ? h(
+                        'div',
+                        { className: 'realp-toolgrid' },
+                        (bundle.tools || []).map(function (tool) {
+                          return h(
+                            'span',
+                            { className: 'realp-toolchip', key: tool.name },
+                            h('code', null, tool.name),
+                            h('span', { className: 'realp-toolchip-cost' }, '~' + tool.tokens),
+                          );
+                        }),
+                      )
+                    : null,
                 ),
               );
             }),

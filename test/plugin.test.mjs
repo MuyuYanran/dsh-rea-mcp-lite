@@ -12,6 +12,11 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(HERE, '..');
 const PLUGIN = path.join(REPO, 'dsh-plugin');
 
+/** 直接读快照文件，用于和插件报告的数值交叉核对（避免把工具数量写死在测试里）。 */
+function readSnapshotRaw() {
+  return JSON.parse(fs.readFileSync(path.join(REPO, 'data', 'tools-model.json'), 'utf8'));
+}
+
 let passed = 0;
 let failed = 0;
 function check(name, condition, detail = '') {
@@ -141,6 +146,7 @@ try {
   const { apply, name, inject, resolveGatewayRoot, computeState, gatewayCandidates, scanPatch, patchDisabledNames, patchLayers, reaServerState, resolvePatchPath } = await import(
     pathToFileURL(path.join(PLUGIN, 'lib', 'index.js')).href
   );
+  const { BUNDLES } = await import(pathToFileURL(path.join(REPO, 'src', 'bundles.mjs')).href);
 
   check('插件名与注入声明', name === 'dsh-rea-lite-panel' && inject.includes('webServer'));
   check('默认从仓库布局认出网关根目录', resolveGatewayRoot(undefined) === REPO, resolveGatewayRoot(undefined));
@@ -168,9 +174,35 @@ try {
   const state = stateRes.payload;
   check('GET /state → 200', stateRes.status === 200);
   check('读到临时配置文件', state.configPath === tempConfig, state.configPath);
-  check('列出 9 个功能族', state.bundles.length === 9, state.bundles.map((b) => b.id).join(','));
-  check('快照可用（170 个工具）', state.snapshot.present && state.snapshot.toolCount === 170, `tools=${state.snapshot.toolCount}`);
-  check('元工具成本 411 tok', state.metaTokens === 411, `meta=${state.metaTokens}`);
+  check('功能族数量与 bundles.mjs 一致', state.bundles.length === Object.keys(BUNDLES).length, `${state.bundles.length} 个: ${state.bundles.map((b) => b.id).join(',')}`);
+
+  // 族内工具清单：面板靠它做「看族内工具」展开，缺了就只能显示数字。
+  const navBundle = state.bundles.find((b) => b.id === 'nav');
+  check('每个族带 toolCount 个族内工具名', navBundle && Array.isArray(navBundle.tools) && navBundle.tools.length === navBundle.toolCount, `nav: ${navBundle?.tools?.length}/${navBundle?.toolCount}`);
+  check('族内工具项含名字与成本', Boolean(navBundle?.tools?.[0]?.name) && typeof navBundle?.tools?.[0]?.tokens === 'number');
+  check('族内工具成本之和不超过该族总成本', navBundle.tools.reduce((s, x) => s + x.tokens, 0) <= navBundle.tokens * 1.02);
+  // 风险标记：debug/capture/formats 需要目标环境或外部工具链，面板上要能区分出来。
+  check('debug 族标了 risky', state.bundles.find((b) => b.id === 'debug')?.risky === true);
+  check('nav 族不标 risky', state.bundles.find((b) => b.id === 'nav')?.risky === false);
+  // 老版本 REA（当前快照即 6.4.0）没有 debug 族的工具，面板必须能说清「是版本没有，不是坏了」。
+  const debugBundle = state.bundles.find((b) => b.id === 'debug');
+  check(
+    'REA 版本没有的族标 unavailable',
+    debugBundle.unavailable === (debugBundle.toolCount === 0),
+    `debug toolCount=${debugBundle.toolCount} unavailable=${debugBundle.unavailable}`,
+  );
+  check('available 的族不误标 unavailable', state.bundles.find((b) => b.id === 'nav').unavailable === false);
+  check('unavailable 的族仍报出定义了多少个工具', debugBundle.definedTools > 0, `defined=${debugBundle.definedTools}`);
+  check(
+    '每个族都有中文标签与提示',
+    state.bundles.every((b) => typeof b.label === 'string' && b.label !== '' && typeof b.hint === 'string'),
+  );
+  check(
+    '快照工数等于快照文件自报的数量',
+    state.snapshot.present && state.snapshot.toolCount === readSnapshotRaw().toolCount,
+    `tools=${state.snapshot.toolCount}`,
+  );
+  check('元工具成本为正且小于 1k', state.metaTokens > 0 && state.metaTokens < 1000, `meta=${state.metaTokens}`);
   check('当前仅元工具时合计 == 元工具', state.activeTokens === state.metaTokens, `active=${state.activeTokens}`);
   check('全量成本约 49k tok', state.totalTokens > 48000 && state.totalTokens < 50000, `total=${state.totalTokens}`);
   check('实测只数 mcp__rea__*', state.live.toolCount === 2, `live=${state.live.toolCount}`);

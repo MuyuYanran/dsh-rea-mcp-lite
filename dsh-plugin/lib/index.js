@@ -28,6 +28,15 @@ const SERVER_NAME = 'rea';
 /** Cordis fiber 状态码 → 可读阶段。 */
 const FIBER_PHASE = { 0: 'pending', 1: 'loading', 2: 'active', 3: 'failed', 4: 'disposed', 5: 'unloading' };
 
+/**
+ * 需要额外准备或风险较高的功能族，面板上单独标注。
+ *
+ * 这些族不是「加载了就能用」：动态调试要求目标进程/设备已就绪、且会改目标状态；
+ * 抓包与信号分析要求本机装了 TShark / sigrok-cli；格式专项里 objdump 也依赖外部工具链。
+ * 标出来是为了避免用户勾了 debug 却发现调不动，还以为网关坏了。
+ */
+const RISKY_BUNDLES = new Set(['debug', 'capture', 'formats']);
+
 // ── 网关定位与模块加载 ───────────────────────────────────────────────────────
 
 /**
@@ -298,6 +307,14 @@ export function computeState(input) {
       toolCount: hit.length,
       tokens: hit.length ? tokensOfChars(chars) : 0,
       active: allActive || activeBundles.includes(id),
+      // 本 REA 版本里这个族一个工具都没有 = 该族是更新版 REA 才有的能力。
+      // 不标出来的话，用户会以为「勾了 debug 却没反应」是网关坏了。
+      unavailable: hit.length === 0 && (def.tools ?? []).length > 0,
+      definedTools: (def.tools ?? []).length,
+      // 族内工具清单（含各自成本），面板上可展开查看，省得为「这族到底有什么」去翻 REA 文档。
+      tools: hit.map((toolName) => ({ name: toolName, tokens: tokensOfChars(byName.get(toolName)?.chars ?? 0) })),
+      // 需要额外准备（目标环境/外部工具链）或风险较高的族，面板上单独标注。
+      risky: RISKY_BUNDLES.has(id),
     };
   });
 

@@ -44,6 +44,8 @@ class ReaProxy {
     this.initTimer = null;
     this.pending = new Map();
     this.internalSeq = 0;
+    this.clientMeta = null; // 客户端出站请求的 _meta 信封（2026-07-28+ 协议要求），内部请求向 REA 转发时复用
+    this.childResultShell = null; // REA tools/list 结果外壳（含 ttlMs/cacheScope/_meta 等现代协议字段），回客户端时复用
     this.activeBundles = [...config.activeBundles];
     this.exposedCache = null;
     this.clientReader = null;
@@ -101,6 +103,12 @@ class ReaProxy {
   }
 
   routeClient(msg) {
+    // 捕获客户端出站请求的 _meta 信封。2026-07-28+ 协议版本要求每个请求都带
+    // io.modelcontextprotocol/protocolVersion 与 .../clientCapabilities；代理内部
+    // 向 REA 发的请求（预取工具列表、call_tool）若不带，REA 会以
+    // "Request is missing the required _meta envelope" 拒绝，导致工具列表不可用。
+    if (msg.params?._meta) this.clientMeta = msg.params._meta;
+
     if (msg.method === 'initialize') {
       this.initId = msg.id;
       this.initTimer = setTimeout(() => { this.childError = '等待 REA 初始化超时（30 秒）'; this.failInit(); }, 30000);
@@ -122,10 +130,20 @@ class ReaProxy {
     this.writeChild(msg);
   }
 
+  // 2026-07-28+ 协议要求结果带 resultType:"complete"；旧版本忽略此字段。
+  // 仅在客户端走现代协议（this.clientMeta 已捕获）时添加，避免对旧客户端造成语义偏差。
+  modernResult(result) {
+    if (this.clientMeta) return { ...result, resultType: 'complete' };
+    return result;
+  }
+
   async replyToolList(msg) {
     try {
       const tools = await this.buildExposedTools();
-      this.writeOut({ jsonrpc: '2.0', id: msg.id, result: { tools } });
+      // 复用 REA 结果外壳（含 ttlMs/cacheScope/_meta 等现代协议必需字段），只替换 tools 数组
+      const result = { ...(this.childResultShell ?? {}), tools };
+      if (this.clientMeta) result.resultType = 'complete'; // 2026-07-28+ 要求结果显式带 resultType
+      this.writeOut({ jsonrpc: '2.0', id: msg.id, result });
     } catch (error) {
       this.writeOut({ jsonrpc: '2.0', id: msg.id, error: { code: -32603, message: String(error?.message ?? error) } });
     }
@@ -134,7 +152,7 @@ class ReaProxy {
   async replyMetaCall(msg, name) {
     try {
       const result = await handleMetaTool(name, msg.params?.arguments ?? {}, this.metaCtx);
-      this.writeOut({ jsonrpc: '2.0', id: msg.id, result });
+      this.writeOut({ jsonrpc: '2.0', id: msg.id, result: this.modernResult(result) });
     } catch (error) {
       this.writeOut({ jsonrpc: '2.0', id: msg.id, error: { code: -32603, message: String(error?.message ?? error) } });
     }
@@ -172,6 +190,7 @@ class ReaProxy {
 
     if (msg.method === 'notifications/tools/list_changed') {
       this.childTools = null;
+      this.childResultShell = null;
       this.exposedCache = null;
     }
     this.writeOut(msg);
@@ -181,6 +200,9 @@ class ReaProxy {
   request(method, params, timeoutMs = 120000) {
     if (this.childError) return Promise.reject(new Error(this.childError));
     const id = `__proxy_${++this.internalSeq}`;
+    // 复用客户端的 _meta 信封，满足 REA 在 2026-07-28+ 协议版本下的校验
+    const outParams = { ...params };
+    if (this.clientMeta) outParams._meta = { ...this.clientMeta, ...(outParams._meta ?? {}) };
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
@@ -190,7 +212,7 @@ class ReaProxy {
         resolve: (msg) => { clearTimeout(timer); resolve(msg); },
         reject: (error) => { clearTimeout(timer); reject(error); },
       });
-      this.writeChild({ jsonrpc: '2.0', id, method, params });
+      this.writeChild({ jsonrpc: '2.0', id, method, params: outParams });
     });
   }
 
@@ -198,7 +220,9 @@ class ReaProxy {
     try {
       const msg = await this.request('tools/list', {}, 60000);
       if (msg.error) throw new Error(msg.error.message);
-      this.childTools = msg.result?.tools ?? [];
+      const { tools, ...shell } = msg.result ?? {};
+      this.childTools = tools ?? [];
+      this.childResultShell = shell; // 保留 ttlMs/cacheScope/_meta 等现代协议必需字段
       this.exposedCache = null;
       log(`已缓存 ${this.childTools.length} 个 REA 工具的 schema`);
       this.refreshSnapshot();
