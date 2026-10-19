@@ -61,11 +61,20 @@ window.__ModuleLoader__.load({
         customIdPlaceholder: '组名（小写字母/数字/下划线/连字符）',
         customLabelPlaceholder: '显示名（可留空，默认用组名）',
         customSave: '保存分组',
+        customSaveEdit: '保存修改',
+        customEdit: '编辑',
         customDelete: '删除',
+        customAllTools: '全部工具',
+        customFilter: '按名字或说明筛选…',
+        customEmptyPick: '还没有选工具。左边勾选，或把工具拖进来。',
+        dropHint: '可把左侧工具拖到此处加入；点 × 移除。',
+        remove: '移除',
+        customMergeFrom: '整族并入：',
+        chooseBundle: '选一个族…',
+        mergeAdd: '全加进来',
+        mergeRemove: '全移出去',
         customTag: '自定义',
         customPicked: '已选',
-        customPickHint: '先在下方「查工具」里搜出工具，再从这里勾选。',
-        customPickFromSearch: '提示：下方搜索结果里也能直接勾选要加入的工具。',
         customSaved: '自定义分组已保存。',
         customRemoved: '自定义分组已删除。',
         cancel: '取消',
@@ -131,11 +140,20 @@ window.__ModuleLoader__.load({
         customIdPlaceholder: 'Group id (lowercase letters, digits, _ or -)',
         customLabelPlaceholder: 'Display name (optional)',
         customSave: 'Save group',
+        customSaveEdit: 'Save changes',
+        customEdit: 'Edit',
         customDelete: 'Delete',
+        customAllTools: 'All tools',
+        customFilter: 'Filter by name or description…',
+        customEmptyPick: 'Nothing picked yet. Tick on the left, or drag tools in.',
+        dropHint: 'Drag tools here from the left; click × to remove.',
+        remove: 'Remove',
+        customMergeFrom: 'Merge whole bundle:',
+        chooseBundle: 'Pick a bundle…',
+        mergeAdd: 'Add all',
+        mergeRemove: 'Remove all',
         customTag: 'custom',
         customPicked: 'Picked',
-        customPickHint: 'Search a tool below first, then tick it here.',
-        customPickFromSearch: 'Tip: you can also tick tools directly in the search results below.',
         customSaved: 'Custom group saved.',
         customRemoved: 'Custom group deleted.',
         cancel: 'Cancel',
@@ -234,6 +252,23 @@ window.__ModuleLoader__.load({
       '.realp-tag-custom{background:transparent;border:1px solid var(--dsw-alias-brand-primary);color:var(--dsw-alias-brand-primary)}',
       '.realp-tool-head{display:flex;align-items:flex-start;gap:6px}',
       '.realp-tool-picked{border-color:var(--dsw-alias-brand-primary)}',
+      '.realp-editor{display:flex;flex-direction:column;gap:8px;margin-top:8px;padding:10px;border-radius:8px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1)}',
+      '.realp-editor-cols{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap}',
+      '.realp-editor-col{flex:1 1 260px;min-width:240px;display:flex;flex-direction:column;gap:6px}',
+      '.realp-editor-picked{outline:1px dashed var(--dsw-alias-border-l1);outline-offset:4px;border-radius:6px}',
+      '.realp-col-head{font-size:11px;color:var(--dsw-alias-label-secondary);font-weight:600}',
+      '.realp-col-body{display:flex;flex-direction:column;gap:2px;max-height:280px;overflow:auto;padding-right:2px}',
+      '.realp-toolrow{display:flex;align-items:center;gap:6px;padding:3px 6px;border-radius:5px;font-size:11px;cursor:pointer}',
+      '.realp-toolrow:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.realp-toolrow-on{background:var(--dsw-alias-bg-layer-2)}',
+      '.realp-toolrow input{margin:0;flex:0 0 auto}',
+      '.realp-toolrow-main{display:flex;flex-direction:column;gap:1px;min-width:0;flex:1}',
+      '.realp-toolrow-desc{color:var(--dsw-alias-label-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.realp-toolrow-cost{color:var(--dsw-alias-label-secondary);opacity:.75;flex:0 0 auto}',
+      '.realp-x{appearance:none;background:none;border:0;cursor:pointer;color:var(--dsw-alias-label-secondary);font-size:14px;line-height:1;padding:0 2px;margin-left:auto}',
+      '.realp-x:hover{color:var(--dsw-alias-state-error-primary)}',
+      '.realp-drop-hint{font-size:11px;color:var(--dsw-alias-label-secondary);opacity:.75}',
+      '.realp-select{height:28px;border-radius:7px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;padding:0 6px}',
       '.realp-input{width:100%;height:30px;padding:0 10px;border-radius:8px;border:1px solid var(--dsw-alias-border-l1);background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font:inherit;font-size:12px;outline:none}',
       '.realp-input:focus{border-color:var(--dsw-alias-brand-primary)}',
       '.realp-note{padding:9px 12px;border-radius:8px;background:var(--dsw-alias-bg-layer-1);border:1px solid var(--dsw-alias-border-l1);color:var(--dsw-alias-label-secondary);font-size:12px}',
@@ -321,11 +356,15 @@ window.__ModuleLoader__.load({
       var [query, setQuery] = useState('');
       var [matches, setMatches] = useState(null);
       var [expanded, setExpanded] = useState({});
-      var [customOpen, setCustomOpen] = useState(false);
-      var [customId, setCustomId] = useState('');
-      var [customLabel, setCustomLabel] = useState('');
-      var [customPicked, setCustomPicked] = useState([]);
+      // 分组编辑器：null = 关闭，'' = 新建，其它 = 正在编辑该 id 的已有组。
+      var [editing, setEditing] = useState(null);
+      var [draftId, setDraftId] = useState('');
+      var [draftLabel, setDraftLabel] = useState('');
+      var [draftTools, setDraftTools] = useState([]);
       var [customError, setCustomError] = useState('');
+      var [allTools, setAllTools] = useState([]);
+      var [toolFilter, setToolFilter] = useState('');
+      var [pickedBundle, setPickedBundle] = useState('');
       var pollRef = useRef(null);
 
       var t = makeT(locale);
@@ -361,14 +400,27 @@ window.__ModuleLoader__.load({
         });
       };
 
+      /** 一次性拉全部工具（含一句话定义），供分组编辑器直接勾选。 */
+      var loadAllTools = useCallback(function () {
+        return api('tools')
+          .then(function (payload) {
+            setAllTools(payload.matches || []);
+            return payload;
+          })
+          .catch(function (failure) {
+            setError(String(failure.message || failure));
+          });
+      }, []);
+
       useEffect(
         function () {
           load();
+          loadAllTools();
           return function () {
             if (pollRef.current !== null) clearInterval(pollRef.current);
           };
         },
-        [load],
+        [load, loadAllTools],
       );
 
       /** 保存后短暂轮询：热切换要等代理刷新工具列表，注册表里的实测值随后才变。 */
@@ -437,18 +489,46 @@ window.__ModuleLoader__.load({
           });
       }
 
-      /** 保存自定义分组：只提交 id/label/tools，工具存在性由宿主用快照校验。 */
+      /** 打开编辑器：新建用空表单，编辑用已有族的现值。 */
+      function openEditor(bundle) {
+        setCustomError('');
+        if (bundle) {
+          setEditing(bundle.id);
+          setDraftId(bundle.id);
+          setDraftLabel(bundle.label || '');
+          setDraftTools((bundle.tools || []).map(function (tool) { return tool.name; }));
+        } else {
+          setEditing('');
+          setDraftId('');
+          setDraftLabel('');
+          setDraftTools([]);
+        }
+        setToolFilter('');
+      }
+
+      function closeEditor() {
+        setEditing('');
+        setDraftId('');
+        setDraftLabel('');
+        setDraftTools([]);
+        setCustomError('');
+      }
+
+      /** 保存自定义分组：编辑时带上 renameFrom，让宿主把勾选一起迁到新组名。 */
       function saveCustom() {
         setCustomError('');
         setBusy(true);
-        api('custom', { id: customId.trim(), label: customLabel.trim(), tools: customPicked })
+        api('custom', {
+          id: draftId.trim(),
+          label: draftLabel.trim(),
+          tools: draftTools,
+          renameFrom: editing !== '' && editing !== draftId.trim() ? editing : undefined,
+        })
           .then(function (payload) {
             setState(payload.state);
-            setCustomOpen(false);
-            setCustomId('');
-            setCustomLabel('');
-            setCustomPicked([]);
+            closeEditor();
             setNote(t('customSaved'));
+            loadAllTools();
           })
           .catch(function (failure) {
             setCustomError(String(failure.message || failure));
@@ -464,7 +544,9 @@ window.__ModuleLoader__.load({
         api('custom', { id: id, delete: true })
           .then(function (payload) {
             setState(payload.state);
+            if (editing === id) closeEditor();
             setNote(t('customRemoved'));
+            loadAllTools();
           })
           .catch(function (failure) {
             setError(String(failure.message || failure));
@@ -475,13 +557,44 @@ window.__ModuleLoader__.load({
       }
 
       function togglePick(name) {
-        setCustomPicked(function (previous) {
+        setDraftTools(function (previous) {
           return previous.indexOf(name) >= 0
-            ? previous.filter(function (entry) {
-                return entry !== name;
-              })
+            ? previous.filter(function (entry) { return entry !== name; })
             : previous.concat([name]);
         });
+      }
+
+      /** 把某个内置族/自定义族的全部工具一次性并进当前草稿（或整族移除）。 */
+      function mergeBundle(id, add) {
+        if (state === null) return;
+        var bundle = (state.bundles || []).filter(function (b) { return b.id === id; })[0];
+        if (!bundle || !Array.isArray(bundle.tools)) return;
+        var names = bundle.tools.map(function (tool) { return tool.name; });
+        setDraftTools(function (previous) {
+          if (add) {
+            var set = previous.slice();
+            names.forEach(function (name) { if (set.indexOf(name) < 0) set.push(name); });
+            return set;
+          }
+          return previous.filter(function (name) { return names.indexOf(name) < 0; });
+        });
+      }
+
+      /** 拖放：把工具从列表拖进「已选」区（拖动是勾选之外的增强，不是唯一途径）。 */
+      var dragName = useRef(null);
+
+      function onDropAdd(event) {
+        event.preventDefault();
+        var name = event.dataTransfer.getData('text/plain') || dragName.current;
+        dragName.current = null;
+        if (name && draftTools.indexOf(name) < 0) setDraftTools(draftTools.concat([name]));
+      }
+
+      function onDropRemove(event) {
+        event.preventDefault();
+        var name = event.dataTransfer.getData('text/plain') || dragName.current;
+        dragName.current = null;
+        if (name) setDraftTools(draftTools.filter(function (entry) { return entry !== name; }));
       }
 
       if (state === null) {
@@ -663,116 +776,221 @@ window.__ModuleLoader__.load({
               {
                 type: 'button',
                 className: 'realp-btn',
-                disabled: busy || !state.writable,
-                onClick: function () {
-                  setCustomOpen(!customOpen);
-                  setCustomError('');
-                },
+                disabled: busy || !state.writable || editing !== null,
+                onClick: function () { openEditor(null); },
               },
-              customOpen ? t('cancel') : t('customNew'),
+              t('customNew'),
             ),
           ),
           h('p', { className: 'realp-section-hint' }, t('customHint')),
-          customOpen
+          editing !== null
             ? h(
                 'div',
-                { className: 'realp-custom' },
+                { className: 'realp-editor' },
                 h(
                   'div',
                   { className: 'realp-custom-row' },
                   h('input', {
                     className: 'realp-input realp-custom-id',
-                    value: customId,
+                    value: draftId,
                     placeholder: t('customIdPlaceholder'),
-                    onChange: function (event) { setCustomId(event.target.value); },
+                    onChange: function (event) { setDraftId(event.target.value); },
                   }),
                   h('input', {
                     className: 'realp-input',
-                    value: customLabel,
+                    value: draftLabel,
                     placeholder: t('customLabelPlaceholder'),
-                    onChange: function (event) { setCustomLabel(event.target.value); },
+                    onChange: function (event) { setDraftLabel(event.target.value); },
                   }),
-                ),
-                h(
-                  'div',
-                  { className: 'realp-custom-pick' },
-                  (matches || []).length === 0
-                    ? h('div', { className: 'realp-row-hint' }, t('customPickHint'))
-                    : matches.map(function (tool) {
-                        var picked = customPicked.indexOf(tool.name) >= 0;
-                        return h(
-                          'label',
-                          { className: 'realp-toolchip' + (picked ? ' realp-toolchip-on' : ''), key: tool.name },
-                          h('input', {
-                            type: 'checkbox',
-                            checked: picked,
-                            onChange: function () { togglePick(tool.name); },
-                          }),
-                          h('code', null, tool.name),
-                        );
-                      }),
-                ),
-                h(
-                  'div',
-                  { className: 'realp-custom-row' },
-                  h('span', { className: 'realp-row-hint' }, t('customPicked') + ' ' + customPicked.length),
                   h(
                     'button',
                     {
                       type: 'button',
                       className: 'realp-btn realp-btn-primary',
-                      disabled: busy || customId.trim() === '' || customPicked.length === 0,
+                      disabled: busy || draftId.trim() === '' || draftTools.length === 0,
                       onClick: saveCustom,
                     },
-                    t('customSave'),
+                    editing === '' ? t('customSave') : t('customSaveEdit'),
+                  ),
+                  h(
+                    'button',
+                    { type: 'button', className: 'realp-btn', onClick: closeEditor },
+                    t('cancel'),
                   ),
                 ),
-                customError !== ''
-                  ? h('div', { className: 'realp-note realp-note-error' }, customError)
-                  : null,
-                h('div', { className: 'realp-row-hint' }, t('customPickFromSearch')),
-              )
-            : null,
-          state.bundles.filter(function (bundle) {
-            return bundle.custom === true;
-          }).length === 0
-            ? null
-            : h(
-                'div',
-                { className: 'realp-list' },
-                state.bundles
-                  .filter(function (bundle) {
-                    return bundle.custom === true;
-                  })
-                  .map(function (bundle) {
-                    return h(
+                customError !== '' ? h('div', { className: 'realp-note realp-note-error' }, customError) : null,
+                h(
+                  'div',
+                  { className: 'realp-editor-cols' },
+                  // 左：全部工具，带一句话定义；勾选即加入（拖动是增强，不是唯一途径）
+                  h(
+                    'div',
+                    { className: 'realp-editor-col' },
+                    h('div', { className: 'realp-col-head' }, t('customAllTools') + ' · ' + allTools.length),
+                    h('input', {
+                      className: 'realp-input',
+                      value: toolFilter,
+                      placeholder: t('customFilter'),
+                      onChange: function (event) { setToolFilter(event.target.value); },
+                    }),
+                    h(
                       'div',
-                      { className: 'realp-row realp-row-custom', key: 'c-' + bundle.id },
-                      h(
+                      { className: 'realp-col-body' },
+                      allTools
+                        .filter(function (tool) {
+                          var q = toolFilter.trim().toLowerCase();
+                          return q === '' || tool.name.toLowerCase().indexOf(q) >= 0 || (tool.desc || '').toLowerCase().indexOf(q) >= 0;
+                        })
+                        .map(function (tool) {
+                          var picked = draftTools.indexOf(tool.name) >= 0;
+                          return h(
+                            'label',
+                            {
+                              className: 'realp-toolrow' + (picked ? ' realp-toolrow-on' : ''),
+                              key: 'a-' + tool.name,
+                              draggable: true,
+                              onDragStart: function (event) {
+                                dragName.current = tool.name;
+                                try { event.dataTransfer.setData('text/plain', tool.name); } catch (ignored) {}
+                                event.dataTransfer.effectAllowed = 'copy';
+                              },
+                              title: tool.desc,
+                            },
+                            h('input', {
+                              type: 'checkbox',
+                              checked: picked,
+                              onChange: function () { togglePick(tool.name); },
+                            }),
+                            h(
+                              'span',
+                              { className: 'realp-toolrow-main' },
+                              h('code', null, tool.name),
+                              h('span', { className: 'realp-toolrow-desc' }, tool.desc || ''),
+                            ),
+                            h('span', { className: 'realp-toolrow-cost' }, '~' + tool.tokens),
+                          );
+                        }),
+                    ),
+                  ),
+                  // 右：本组已选（点击移除；也接受从左侧拖入）
+                  h(
+                    'div',
+                    {
+                      className: 'realp-editor-col realp-editor-picked',
+                      onDragOver: function (event) { event.preventDefault(); },
+                      onDrop: onDropAdd,
+                    },
+                    h('div', { className: 'realp-col-head' }, t('customPicked') + ' · ' + draftTools.length),
+                    h(
+                      'div',
+                      { className: 'realp-col-body' },
+                      draftTools.length === 0
+                        ? h('div', { className: 'realp-row-hint' }, t('customEmptyPick'))
+                        : draftTools.map(function (name) {
+                            return h(
+                              'div',
+                              {
+                                className: 'realp-toolrow realp-toolrow-on',
+                                key: 'p-' + name,
+                                draggable: true,
+                                onDragStart: function (event) {
+                                  dragName.current = name;
+                                  try { event.dataTransfer.setData('text/plain', name); } catch (ignored) {}
+                                },
+                              },
+                              h('code', null, name),
+                              h(
+                                'button',
+                                {
+                                  type: 'button',
+                                  className: 'realp-x',
+                                  title: t('remove'),
+                                  onClick: function () { togglePick(name); },
+                                },
+                                '×',
+                              ),
+                            );
+                          }),
+                    ),
+                    h('div', { className: 'realp-drop-hint' }, t('dropHint')),
+                  ),
+                ),
+                // 快速并入整族：省得一个个勾
+                h(
+                  'div',
+                  { className: 'realp-custom-row' },
+                  h('span', { className: 'realp-row-hint' }, t('customMergeFrom')),
+                  h(
+                    'select',
+                    {
+                      className: 'realp-select',
+                      value: pickedBundle,
+                      onChange: function (event) { setPickedBundle(event.target.value); },
+                    },
+                    [h('option', { value: '', key: '' }, t('chooseBundle'))].concat(
+                      (state.bundles || []).map(function (bundle) {
+                        return h('option', { value: bundle.id, key: bundle.id }, bundle.label + ' (' + bundle.id + ')');
+                      }),
+                    ),
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'realp-btn',
+                      disabled: pickedBundle === '',
+                      onClick: function () { mergeBundle(pickedBundle, true); },
+                    },
+                    t('mergeAdd'),
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'realp-btn',
+                      disabled: pickedBundle === '',
+                      onClick: function () { mergeBundle(pickedBundle, false); },
+                    },
+                    t('mergeRemove'),
+                  ),
+                ),
+              )
+            : state.bundles.filter(function (bundle) { return bundle.custom === true; }).length === 0
+              ? null
+              : h(
+                  'div',
+                  { className: 'realp-list' },
+                  state.bundles
+                    .filter(function (bundle) { return bundle.custom === true; })
+                    .map(function (bundle) {
+                      return h(
                         'div',
-                        { className: 'realp-grow' },
+                        { className: 'realp-row realp-row-custom', key: 'c-' + bundle.id },
                         h(
                           'div',
-                          { className: 'realp-row-title' },
-                          h('span', null, bundle.label),
-                          h('code', null, bundle.id),
-                          h('span', { className: 'realp-tag realp-tag-custom' }, t('customTag')),
-                          h('span', { className: 'realp-tag' }, bundle.toolCount + ' ' + t('toolsUnit')),
+                          { className: 'realp-grow' },
+                          h(
+                            'div',
+                            { className: 'realp-row-title' },
+                            h('span', null, bundle.label),
+                            h('code', null, bundle.id),
+                            h('span', { className: 'realp-tag realp-tag-custom' }, t('customTag')),
+                            h('span', { className: 'realp-tag' }, bundle.toolCount + ' ' + t('toolsUnit')),
+                          ),
                         ),
-                      ),
-                      h(
-                        'button',
-                        {
-                          type: 'button',
-                          className: 'realp-btn realp-btn-danger',
-                          disabled: busy || !state.writable,
-                          onClick: function () { removeCustom(bundle.id); },
-                        },
-                        t('customDelete'),
-                      ),
-                    );
-                  }),
-              ),
+                        h(
+                          'button',
+                          { type: 'button', className: 'realp-btn', disabled: busy || !state.writable, onClick: function () { openEditor(bundle); } },
+                          t('customEdit'),
+                        ),
+                        h(
+                          'button',
+                          { type: 'button', className: 'realp-btn realp-btn-danger', disabled: busy || !state.writable, onClick: function () { removeCustom(bundle.id); } },
+                          t('customDelete'),
+                        ),
+                      );
+                    }),
+                ),
         ),
 
         h(
@@ -793,14 +1011,15 @@ window.__ModuleLoader__.load({
                   'div',
                   { className: 'realp-tools' },
                   matches.map(function (tool) {
-                    var picked = customPicked.indexOf(tool.name) >= 0;
+                    var picked = draftTools.indexOf(tool.name) >= 0;
+                    var inEditor = editing !== null;
                     return h(
                       'div',
                       { className: 'realp-tool' + (picked ? ' realp-tool-picked' : ''), key: tool.name },
                       h(
                         'div',
                         { className: 'realp-tool-head' },
-                        customOpen
+                        inEditor
                           ? h('input', {
                               type: 'checkbox',
                               checked: picked,

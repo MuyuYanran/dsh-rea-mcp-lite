@@ -489,18 +489,27 @@ export function apply(ctx, config) {
     };
   };
 
-  /** 在快照里搜工具：回答「某个工具属于哪个族」。 */
+  /**
+   * 在快照里搜工具：回答「某个工具是什么、属于哪个族、要花多少成本」。
+   * 面板的「全部工具」视图靠它一次列出所有工具，用户不必先搜索才能勾选。
+   */
   const searchTools = async (url) => {
     const root = resolveGatewayRoot(configuredRoot);
-    if (!isGatewayRoot(root)) return { ok: true, query: '', total: 0, matches: [] };
-    const { readSnapshot } = await loadGatewayModule(root, 'src/snapshot.mjs');
+    if (!isGatewayRoot(root)) return { ok: true, query: '', total: 0, matches: [], bundleOptions: [] };
+    const [{ readSnapshot, tokensOfChars }, { effectiveBundles }, { loadConfig }] = await Promise.all([
+      loadGatewayModule(root, 'src/snapshot.mjs'),
+      loadGatewayModule(root, 'src/bundles.mjs'),
+      loadGatewayModule(root, 'src/config.mjs'),
+    ]);
     const snapshot = readSnapshot();
     const query = (url.searchParams.get('q') ?? '').trim().toLowerCase();
-    const limit = Math.min(Number.parseInt(url.searchParams.get('limit') ?? '60', 10) || 60, 200);
+    const parsedLimit = Number.parseInt(url.searchParams.get('limit') ?? '400', 10);
+    const limit = Math.min(Number.isFinite(parsedLimit) ? parsedLimit : 400, 500);
     const tools = snapshot?.tools ?? [];
     const matched = query === ''
       ? tools
       : tools.filter((tool) => tool.name.toLowerCase().includes(query) || (tool.desc ?? '').toLowerCase().includes(query));
+    const table = effectiveBundles(loadConfig().customBundles);
     return {
       ok: true,
       query,
@@ -509,15 +518,19 @@ export function apply(ctx, config) {
         name: tool.name,
         desc: tool.desc ?? '',
         bundles: tool.bundles ?? [],
-        tokens: Math.round((tool.chars ?? 0) / CHARS_PER_TOKEN),
+        tokens: tokensOfChars(tool.chars ?? 0),
       })),
+      // 面板用它渲染「这个工具能加进哪些自定义组」。
+      bundleOptions: Object.entries(table).map(([id, def]) => ({ id, label: def.label ?? id, custom: def.custom === true })),
     };
   };
 
   /**
-   * 保存/删除自定义功能族。
-   * body: { id, label?, hint?, tools: string[], delete?: boolean }
-   * 只动 customBundles（删除时同时把该族从 activeBundles 摘掉），不碰其它配置。
+   * 保存 / 编辑 / 删除自定义功能族。
+   * body: { id, label?, hint?, tools: string[], delete?: boolean, renameFrom?: string }
+   *
+   * renameFrom 用于改组名：先确认旧组存在、新组名没被占用，再把配置里的键换掉，
+   * 同时把 activeBundles 里的旧名替换成新名——否则改名后原来的勾选会悄悄失效。
    */
   const saveCustom = async (body) => {
     const root = resolveGatewayRoot(configuredRoot);
@@ -532,6 +545,7 @@ export function apply(ctx, config) {
     const current = loadConfig();
     const custom = { ...(current.customBundles ?? {}) };
     const id = typeof body?.id === 'string' ? body.id.trim() : '';
+    const renameFrom = typeof body?.renameFrom === 'string' ? body.renameFrom.trim() : '';
 
     if (body?.delete === true) {
       if (!Object.hasOwn(custom, id)) throw new Error(`没有自定义族：${id || '(空)'}`);
@@ -541,8 +555,15 @@ export function apply(ctx, config) {
       // 用快照里的工具名做存在性校验：宁可此时报「未知工具」，也别存下一个调不通的族。
       const known = (readSnapshot()?.tools ?? []).map((tool) => tool.name);
       const normalized = normalizeCustomBundle({ id, label: body?.label, hint: body?.hint, tools: body?.tools }, known);
+      let activeBundles = [...(current.activeBundles ?? [])];
+      if (renameFrom !== '' && renameFrom !== normalized.id) {
+        if (!Object.hasOwn(custom, renameFrom)) throw new Error(`没有自定义族：${renameFrom}`);
+        delete custom[renameFrom];
+        // 改名后把勾选一并迁过去，用户不会发现「我明明勾着的组不见了」。
+        activeBundles = [...new Set(activeBundles.map((name) => (name === renameFrom ? normalized.id : name)))];
+      }
       custom[normalized.id] = { label: normalized.label, hint: normalized.hint, tools: normalized.tools };
-      saveConfig({ ...current, customBundles: custom });
+      saveConfig({ ...current, customBundles: custom, activeBundles });
     }
     const state = await buildState();
     return { ok: true, saved: true, applied: state.server.phase === 'active' ? 'hot' : 'pending', state };

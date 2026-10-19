@@ -281,6 +281,60 @@ try {
   const delMissing = await call(handler, { method: 'POST', url: '/rea-lite/custom', body: { id: 'ghost', delete: true } });
   check('删除不存在的分组 → 400', delMissing.status === 400, delMissing.payload.error);
 
+  // 编辑已有分组：改工具集合 + 改组名（勾选要跟着迁走）
+  const again = await call(handler, { method: 'POST', url: '/rea-lite/custom', body: { id: 'edit-me', label: '待编辑', tools: ['address_name'] } });
+  check('先建一个待编辑的组', again.status === 200 && again.payload.state.bundles.some((b) => b.id === 'edit-me'));
+  await call(handler, { method: 'POST', url: '/rea-lite/active', body: { bundles: ['edit-me'] } });
+  const editedRes = await call(handler, {
+    method: 'POST',
+    url: '/rea-lite/custom',
+    body: { id: 'edit-me', label: '改过的名字', tools: ['address_name', 'xrefs', 'read_bytes'], renameFrom: 'edit-me' },
+  });
+  check(
+    '编辑：工具集合被替换',
+    editedRes.status === 200 && editedRes.payload.state.bundles.find((b) => b.id === 'edit-me')?.toolCount === 3,
+    editedRes.payload.error ?? '',
+  );
+  check('编辑：显示名被更新', editedRes.payload.state.bundles.find((b) => b.id === 'edit-me')?.label === '改过的名字');
+
+  const renamedRes = await call(handler, {
+    method: 'POST',
+    url: '/rea-lite/custom',
+    body: { id: 'edit-me-2', label: '改过的名字', tools: ['address_name', 'xrefs', 'read_bytes'], renameFrom: 'edit-me' },
+  });
+  check(
+    '改名：新 id 出现、旧 id 消失',
+    renamedRes.status === 200 &&
+      renamedRes.payload.state.bundles.some((b) => b.id === 'edit-me-2') &&
+      !renamedRes.payload.state.bundles.some((b) => b.id === 'edit-me'),
+    renamedRes.payload.error ?? '',
+  );
+  check(
+    '改名：activeBundles 里的勾选跟着迁到新名',
+    renamedRes.payload.state.activeBundles.includes('edit-me-2') && !renamedRes.payload.state.activeBundles.includes('edit-me'),
+    renamedRes.payload.state.activeBundles.join(','),
+  );
+  const renameMissing = await call(handler, { method: 'POST', url: '/rea-lite/custom', body: { id: 'x2', tools: ['xrefs'], renameFrom: 'nope-group' } });
+  check('改自不存在的组 → 400', renameMissing.status === 400, renameMissing.payload.error);
+  await call(handler, { method: 'POST', url: '/rea-lite/custom', body: { id: 'edit-me-2', delete: true } });
+
+  // 「全部工具」视图：分组编辑器靠它一次列出所有工具，而不是逼用户先搜索
+  const allToolsRes = await call(handler, { url: '/rea-lite/tools' });
+  check(
+    '不带 q 时返回全部工具',
+    allToolsRes.status === 200 && allToolsRes.payload.total === allToolsRes.payload.matches.length,
+    `${allToolsRes.payload.total} 个`,
+  );
+  check(
+    '每个工具带一句话定义，供勾选时判断',
+    typeof allToolsRes.payload.matches[0]?.desc === 'string' && allToolsRes.payload.matches[0].desc !== '',
+  );
+  check(
+    '同时返回可选的分组清单',
+    Array.isArray(allToolsRes.payload.bundleOptions) && allToolsRes.payload.bundleOptions.length >= Object.keys(BUNDLES).length,
+    `${allToolsRes.payload.bundleOptions?.length} 个`,
+  );
+
   // 复位，后面的断言按「仅元工具」基线算
   await call(handler, { method: 'POST', url: '/rea-lite/active', body: { bundles: [] } });
 
