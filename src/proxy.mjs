@@ -1,17 +1,21 @@
 #!/usr/bin/env node
 // rea-mcp-lite —— 夹在 DSH 与 REA 之间的 MCP stdio 代理。
 //
-// 它做四件事：
-//   1. 只把「按需加载的功能族 + 4 个元工具」暴露给模型，REA 的全部工具保持可达；
+// 它做五件事：
+//   1. 只把「按需加载的功能族 + 5 个元工具」暴露给模型，REA 的全部工具保持可达；
 //   2. 裁剪暴露工具的 schema/描述（outputSchema 保留，因为它不进模型上下文、只用于结果校验）；
 //   3. 支持运行时开关功能族：改写后的工具列表通过 notifications/tools/list_changed 热更新，无需重启 DSH；
-//   4. 其余 JSON-RPC 消息（工具调用、资源、通知）原样双向转发。
+//   4. 其余 JSON-RPC 消息（工具调用、资源、通知）原样双向转发；
+//   5. 自身维护：检查/应用本仓库与 REA 更新、把 REA 新版新增工具自动归类、刷新成本快照。
 import fs from 'node:fs';
 import { spawn } from 'node:child_process';
-import { BUNDLES, ALL_BUNDLE, resolveBundleTools, effectiveBundles } from './bundles.mjs';
+import { ALL_BUNDLE, resolveBundleTools, effectiveBundles } from './bundles.mjs';
 import { projectTool, estimateTokens } from './lite.mjs';
+import { ROOT, loadConfig, CONFIG_PATH, saveConfig } from './config.mjs';
+import { probeTools } from './probe-client.mjs';
+import { classifyTools, buildClassifierPrompt } from './classify.mjs';
+import { collectReport, pullSelfUpdate, pullReaUpdate, refreshAfterUpgrade, applyClassify, describeSelf, describeRea, describeUpdate, runStartupMaintenance } from './maintenance.mjs';
 import { META_TOOLS, META_NAMES, handleMetaTool, describeExposedText } from './meta-tools.mjs';
-import { CONFIG_PATH, loadConfig, saveConfig } from './config.mjs';
 import { tryWriteSnapshot, SNAPSHOT_PATH } from './snapshot.mjs';
 
 function log(...args) { process.stderr.write(`[rea-mcp-lite] ${args.join(' ')}\n`); }
@@ -58,7 +62,89 @@ class ReaProxy {
       lite: () => this.config.lite,
       bundleTable: () => this.bundleTable(),
       describeExposed: () => describeExposedText(this.metaCtx),
+      // 体检/更新/归类：模型侧也能直接触发，不必切到终端。只读动作默认，写动作必须显式要求。
+      maintenance: (args) => this.runMaintenance(args),
     };
+  }
+
+  // ---------- 维护（元工具 maintenance） ----------
+  /**
+   * 把维护动作暴露成元工具。这里的写动作都要求 apply:true，且只走白名单；
+   * 与 CLI 的 `check / update-* / classify` 是同一批实现（maintenance.mjs）。
+   */
+  async runMaintenance(args) {
+    const action = String(args?.action ?? 'report');
+    const config = this.config;
+    if (action === 'report') {
+      const report = await collectReport(config, { root: ROOT, probe: (childConfig) => probeTools(childConfig, { timeoutMs: 60000 }) });
+      const lines = [
+        `结论：${report.summary}`,
+        '',
+        `本仓库：${describeSelf(report.self)}`,
+        `REA 本体：${describeRea(report.rea)}`,
+        `工具覆盖：${report.coverage.total} 个工具，已归族 ${report.coverage.assigned}（来源 ${report.coverage.source}）`,
+      ];
+      if (report.coverage.unassigned.length) {
+        lines.push(`  未归族：${report.coverage.unassigned.join(', ')}`);
+        lines.push('  用 maintenance action=classify 写入高置信度归类，或先看建议。');
+      }
+      if (report.coverage.missingForLocal.length) lines.push(`  族清单有但本地 REA 没有：${report.coverage.missingForLocal.join(', ')}`);
+      return lines.join('\n');
+    }
+    if (action === 'classify') {
+      if (args?.apply !== true && args?.manual === undefined) {
+        const tools = (this.childTools ?? []).map((tool) => ({ name: tool.name, description: tool.description }));
+        const result = classifyTools(tools, { defs: this.bundleTable() });
+        if (result.counts.total === 0) return '当前 REA 的工具全部归族，无需处理。';
+        const rows = result.assignments.map((entry) => `  ${entry.name} → ${entry.suggested ?? '（无建议）'} [${entry.confidence}]`);
+        return [
+          `${result.counts.total} 个工具未归族：`,
+          ...rows,
+          '',
+          '写入高置信度：{"action":"classify","apply":true}；指定：{"action":"classify","manual":{"工具名":"族id"}}',
+          '',
+          buildClassifierPrompt(result.assignments, { defs: this.bundleTable() }),
+        ].join('\n');
+      }
+      const result = await applyClassify(this.config, { manual: args?.manual });
+      this.config = loadConfig();
+      return `已写入 ${result.written} 个归类到 config.bundleExtras（族：${Object.keys(result.extras).join(', ')}）。\n接着刷新快照：{"action":"snapshot"}`;
+    }
+    if (action === 'snapshot') {
+      const after = await refreshAfterUpgrade(this.config, { probe: (childConfig) => probeTools(childConfig, { timeoutMs: 60000 }) });
+      return [
+        after.snapshot ? `快照已刷新：${after.snapshot.toolCount} 个工具，全量约 ${after.snapshot.totalTokens} tok` : '快照未刷新',
+        after.classified ? `自动归类写入 ${after.classified.written} 个工具` : '',
+        ...(after.warnings ?? []),
+      ].filter(Boolean).join('\n');
+    }
+    if (action === 'update-self') {
+      const result = pullSelfUpdate({ root: ROOT, remote: this.config.updates?.self?.remote, apply: args?.apply === true, log });
+      return describeUpdate('本仓库', result);
+    }
+    if (action === 'update-rea') {
+      const result = await pullReaUpdate(this.config, { root: ROOT, apply: args?.apply === true, log });
+      if (result.updated) {
+        // 新版本换了子进程，要重启并重新握手/预取，否则工具列表还是旧的。
+        this.config = loadConfig();
+        this.restartChild('REA 已升级，重启子进程');
+      }
+      return describeUpdate('REA', result);
+    }
+    return `未知动作：${action}。可用：report / classify / snapshot / update-self / update-rea`;
+  }
+
+  /** 重启子进程并重新握手+预取（升级 REA 后必须走这条）。 */
+  restartChild(reason) {
+    log(reason);
+    try { this.child?.kill(); } catch { /* 已退出 */ }
+    this.childError = null;
+    this.childTools = null;
+    this.childResultShell = null;
+    this.exposedCache = null;
+    this.initId = null;
+    this.start();
+    void this.rehandshakeAndPrefetch();
   }
 
   // ---------- 传输层 ----------
@@ -310,9 +396,9 @@ class ReaProxy {
   }
 
   // ---------- 工具列表 ----------
-  /** 本次生效的族表：内置族 + 配置里的自定义族。 */
+  /** 本次生效的族表：内置族 + 自定义族 + 追加归类（bundleExtras）。 */
   bundleTable() {
-    return effectiveBundles(this.config.customBundles);
+    return effectiveBundles(this.config.customBundles, this.config.bundleExtras);
   }
 
   async buildExposedTools() {
@@ -395,6 +481,18 @@ class ReaProxy {
 const proxy = new ReaProxy(loadConfig(), CONFIG_PATH);
 proxy.start();
 proxy.watchConfig();
+// 启动时的自动维护：默认全关（config.updates.*.checkOnStart = false），
+// 开了就只按配置说的做——checkOnStart 只记日志，autoApply 才会改本机。
+// 不阻塞握手：REA 子进程先起来，维护在后台跑，失败也只进 stderr。
+void runStartupMaintenance(proxy.config, { root: ROOT, log: (line) => log(`[startup] ${line}`) }).then((actions) => {
+  if (actions.length === 0) return;
+  const applied = actions.filter((action) => action.updated === true);
+  if (applied.length > 0) {
+    // 自动更新真的改了安装 → 子进程必须重启，否则工具列表还指着旧版本。
+    proxy.config = loadConfig();
+    proxy.restartChild('启动自动更新已完成，重启 REA 子进程');
+  }
+}).catch((error) => log(`启动维护失败：${error?.message ?? error}`));
 process.stdin.on('data', (chunk) => proxy.handleClientLine(chunk));
 process.stdin.on('end', () => { try { proxy.child?.kill(); } catch {} process.exit(0); });
 process.on('SIGTERM', () => { try { proxy.child?.kill(); } catch {} process.exit(0); });

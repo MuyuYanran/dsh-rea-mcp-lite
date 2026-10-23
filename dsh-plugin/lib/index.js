@@ -28,6 +28,9 @@ const SERVER_NAME = 'rea';
 /** Cordis fiber 状态码 → 可读阶段。 */
 const FIBER_PHASE = { 0: 'pending', 1: 'loading', 2: 'active', 3: 'failed', 4: 'disposed', 5: 'unloading' };
 
+/** 面板写回更新设置时的 registry 兜底（与 config.mjs 的默认值一致）。 */
+const DEFAULT_REGISTRY = 'https://registry.npmjs.org/rea-agents';
+
 /**
  * 需要额外准备或风险较高的功能族，面板上单独标注。
  *
@@ -346,6 +349,15 @@ export function computeState(input) {
   else if (input.server?.phase === 'disconnected') warnings.push('rea 已启用但没连上（工具数为 0）：看「MCP 管理」里的启动错误，或检查启动命令、JAVA_HOME。');
   if (input.server?.phase === 'missing') warnings.push('profile 里没有 serverName 为 rea 的 MCP 行，改动不会生效。');
 
+  // 追加归类出来的工具：面板上要能看出「这些不是内置清单里的，是自动/手工补进来的」。
+  const extras = Array.isArray(input.extras) ? input.extras : [];
+  const extrasByBundle = new Map();
+  for (const entry of extras) {
+    const list = extrasByBundle.get(entry.bundle) ?? [];
+    list.push(entry.name);
+    extrasByBundle.set(entry.bundle, list);
+  }
+
   return {
     ok: true,
     gatewayRoot: input.root,
@@ -356,7 +368,11 @@ export function computeState(input) {
     metaTools: config.metaTools !== false,
     activeBundles,
     allActive,
-    bundles,
+    bundles: bundles.map((bundle) => ({
+      ...bundle,
+      // 该族里由 bundleExtras 追加进来的工具名（面板标「自动归类」）。
+      extras: extrasByBundle.get(bundle.id) ?? [],
+    })),
     snapshot: hasSnapshot
       ? {
           present: true,
@@ -374,6 +390,8 @@ export function computeState(input) {
     savings: totalTokens > 0 ? Math.round((1 - activeTokens / totalTokens) * 1000) / 10 : 0,
     live: input.live ?? { toolCount: 0, tokens: 0 },
     server: input.server ?? { known: false, phase: 'unknown' },
+    // 更新开关（面板展示与写回都用它）。
+    updates: input.updates ?? {},
     warnings,
   };
 }
@@ -440,25 +458,28 @@ export function apply(ctx, config) {
         issue: `这里不像 rea-mcp-lite 网关（缺 src/bundles.mjs）：${root}。请把本插件与网关放在同一仓库，或设置 REA_LITE_ROOT。`,
       });
     }
-    const [{ effectiveBundles, ALL_BUNDLE }, { loadConfig, CONFIG_PATH }, { readSnapshot, tokensOfChars }] = await Promise.all([
+    const [{ effectiveBundles, ALL_BUNDLE, extrasOf }, { loadConfig, CONFIG_PATH }, { readSnapshot, tokensOfChars }] = await Promise.all([
       loadGatewayModule(root, 'src/bundles.mjs'),
       loadGatewayModule(root, 'src/config.mjs'),
       loadGatewayModule(root, 'src/snapshot.mjs'),
     ]);
     const configPath = CONFIG_PATH ?? path.join(root, 'config.json');
     const config = loadConfig();
+    // 生效族表 = 内置族 + 用户自定义族 + 追加归类，面板要能一起显示与开关。
+    const table = effectiveBundles(config.customBundles, config.bundleExtras);
     return computeState({
       root,
       configPath,
       writable: probeWritable(configPath),
       config,
-      // 生效族表 = 内置族 + 用户自定义族，面板要能一起显示与开关。
-      bundleDefs: effectiveBundles(config.customBundles),
+      bundleDefs: table,
       allBundle: ALL_BUNDLE,
       snapshot: readSnapshot(),
       tokensOfChars,
       live,
       server,
+      updates: config.updates ?? {},
+      extras: typeof extrasOf === 'function' ? extrasOf(table, config.bundleExtras) : [],
     });
   };
 
@@ -473,7 +494,7 @@ export function apply(ctx, config) {
     if (!Array.isArray(body?.bundles)) throw new Error('bundles 必须是功能族名数组');
     const requested = [...new Set(body.bundles.map((entry) => String(entry)))];
     const current = loadConfig();
-    const table = effectiveBundles(current.customBundles);
+    const table = effectiveBundles(current.customBundles, current.bundleExtras);
     const unknown = requested.filter((id) => id !== ALL_BUNDLE && !Object.hasOwn(table, id));
     if (unknown.length > 0) throw new Error(`未知功能族：${unknown.join(', ')}（可用：${Object.keys(table).join(', ')}, ${ALL_BUNDLE}）`);
     const configPath = CONFIG_PATH ?? path.join(root, 'config.json');
@@ -509,7 +530,8 @@ export function apply(ctx, config) {
     const matched = query === ''
       ? tools
       : tools.filter((tool) => tool.name.toLowerCase().includes(query) || (tool.desc ?? '').toLowerCase().includes(query));
-    const table = effectiveBundles(loadConfig().customBundles);
+    const currentConfig = loadConfig();
+    const table = effectiveBundles(currentConfig.customBundles, currentConfig.bundleExtras);
     return {
       ok: true,
       query,
@@ -569,6 +591,225 @@ export function apply(ctx, config) {
     return { ok: true, saved: true, applied: state.server.phase === 'active' ? 'hot' : 'pending', state };
   };
 
+  /**
+   * 更新与体检报告。默认用快照里的工具清单一秒内出结果；`?live=1` 才真的去问 REA（较慢）。
+   *
+   * 为什么默认不 live：这个接口会被面板轮询，而起 REA 要 5-20 秒；
+   * 用快照足够回答「有哪些新工具没归族」——快照就是上一次真实工具列表的落盘产物。
+   */
+  const maintenanceReport = async (url) => {
+    const root = resolveGatewayRoot(configuredRoot);
+    if (!isGatewayRoot(root)) return { ok: false, reason: `找不到 rea-mcp-lite 网关：${root}` };
+    const [{ checkToolCoverage, checkSelfUpdate }, { checkReaUpdate }, { effectiveBundles, extrasOf }, { loadConfig }, { readSnapshot }] = await Promise.all([
+      loadGatewayModule(root, 'src/updates.mjs'),
+      loadGatewayModule(root, 'src/updates.mjs'),
+      loadGatewayModule(root, 'src/bundles.mjs'),
+      loadGatewayModule(root, 'src/config.mjs'),
+      loadGatewayModule(root, 'src/snapshot.mjs'),
+    ]);
+    const config = loadConfig();
+    const wantLive = url?.searchParams?.get('live') === '1';
+    // 自检项各自兜住异常：网络不通/不是 git 仓库都不该让整个报告失败。
+    const self = (() => {
+      try {
+        return checkSelfUpdate({ root, remote: config.updates?.self?.remote ?? 'origin', fetch: url?.searchParams?.get('fetch') === '1' });
+      } catch (error) {
+        return { ok: false, reason: String(error?.message ?? error) };
+      }
+    })();
+    let rea;
+    try {
+      rea = await checkReaUpdate({ child: config.child, registry: config.updates?.rea?.registry });
+    } catch (error) {
+      rea = { ok: false, reason: String(error?.message ?? error) };
+    }
+    let toolNames = (readSnapshot()?.tools ?? []).map((tool) => tool.name);
+    let source = 'snapshot';
+    if (wantLive) {
+      try {
+        const { probeToolNames } = await loadGatewayModule(root, 'src/probe-client.mjs');
+        const live = await probeToolNames(config.child, { timeoutMs: 90000 });
+        if (live.length > 0) {
+          toolNames = live;
+          source = 'live';
+        }
+      } catch (error) {
+        source = `snapshot（REA 未响应：${String(error?.message ?? error)}）`;
+      }
+    }
+    const table = effectiveBundles(config.customBundles, config.bundleExtras);
+    const coverage = {
+      source,
+      ...checkToolCoverage({ toolNames, defs: table, extras: config.bundleExtras }),
+    };
+    const parts = [];
+    if (self?.fetchError) parts.push(`本仓库取远端失败：${self.fetchError}`);
+    else if (self?.available) parts.push(`本仓库落后 ${self.behind} 个提交`);
+    else if (self?.ok === false) parts.push(`本仓库无法检查：${self.reason ?? '未知原因'}`);
+    if (rea?.updateAvailable) parts.push(`REA 有新版 ${rea.installed} → ${rea.latest}`);
+    else if (rea?.ok === false) parts.push(`REA 无法检查：${rea.reason ?? rea.registryError ?? '未知原因'}`);
+    if (coverage.unassigned.length) parts.push(`${coverage.unassigned.length} 个工具未归族`);
+    if (coverage.missingForLocal.length) parts.push(`${coverage.missingForLocal.length} 个族内工具本地 REA 没有`);
+    return {
+      ok: true,
+      generatedAt: new Date().toISOString(),
+      source,
+      self,
+      rea,
+      coverage,
+      extras: extrasOf(table, config.bundleExtras),
+      updates: config.updates ?? {},
+      summary: parts.length ? parts.join('；') : '本仓库与 REA 都是最新，工具全部归族。',
+    };
+  };
+
+  /** 归类预览：把未归族的工具按规则打分，给面板显示「建议归入哪族」。 */
+  const classifyPreview = async (url) => {
+    const root = resolveGatewayRoot(configuredRoot);
+    if (!isGatewayRoot(root)) return { ok: false, reason: `找不到 rea-mcp-lite 网关：${root}` };
+    const [{ classifyTools }, { effectiveBundles }, { loadConfig }, { readSnapshot }] = await Promise.all([
+      loadGatewayModule(root, 'src/classify.mjs'),
+      loadGatewayModule(root, 'src/bundles.mjs'),
+      loadGatewayModule(root, 'src/config.mjs'),
+      loadGatewayModule(root, 'src/snapshot.mjs'),
+    ]);
+    const config = loadConfig();
+    const snapshot = readSnapshot();
+    const table = effectiveBundles(config.customBundles, config.bundleExtras);
+    const tools = (snapshot?.tools ?? []).map((tool) => ({ name: tool.name, description: tool.desc ?? '' }));
+    const result = classifyTools(tools, { defs: table });
+    return {
+      ok: true,
+      source: 'snapshot',
+      counts: result.counts,
+      // 面板不需要完整题面，只要结论；prompt 单独给按钮复制。
+      assignments: result.assignments.map((entry) => ({
+        name: entry.name,
+        suggested: entry.suggested,
+        confidence: entry.confidence,
+        score: entry.score,
+        candidates: entry.candidates.map((candidate) => candidate.id),
+      })),
+      applyable: result.assignments.filter((entry) => entry.suggested !== null && entry.confidence === 'high').length,
+    };
+  };
+
+  /**
+   * 应用归类：直接调网关自己的 applyClassify（与 CLI / 元工具同一份实现）。
+   * 面板不再复制一份「什么算可写」的判断——那种复制迟早会与 CLI 分叉。
+   */
+  const applyClassifyFromPanel = async (body) => {
+    const root = resolveGatewayRoot(configuredRoot);
+    if (!isGatewayRoot(root)) throw new Error(`找不到 rea-mcp-lite 网关：${root}`);
+    const [{ applyClassify }, { loadConfig, CONFIG_PATH, configPath }, { readSnapshot }] = await Promise.all([
+      loadGatewayModule(root, 'src/maintenance.mjs'),
+      loadGatewayModule(root, 'src/config.mjs'),
+      loadGatewayModule(root, 'src/snapshot.mjs'),
+    ]);
+    const configPathNow = typeof configPath === 'function' ? configPath() : CONFIG_PATH;
+    const configPath_ = configPathNow ?? path.join(root, 'config.json');
+    if (!probeWritable(configPath_)) throw new Error(`配置文件不可写：${configPath_}`);
+    const tools = (readSnapshot()?.tools ?? []).map((tool) => ({ name: tool.name, description: tool.desc ?? '' }));
+    const manual = body?.manual !== undefined && body?.manual !== null && typeof body.manual === 'object' ? body.manual : undefined;
+    const result = await applyClassify(loadConfig(), { tools, manual });
+    const state = await buildState();
+    return {
+      ok: true,
+      saved: true,
+      written: result.written,
+      extras: result.extras,
+      applied: state.server.phase === 'active' ? 'hot' : 'pending',
+      state,
+    };
+  };
+
+  /** 保存更新设置（config.updates）；只允许已知的布尔开关，避免把配置写坏。 */
+  const saveUpdates = async (body) => {
+    const root = resolveGatewayRoot(configuredRoot);
+    if (!isGatewayRoot(root)) throw new Error(`找不到 rea-mcp-lite 网关：${root}`);
+    const [{ loadConfig, saveConfig, CONFIG_PATH }] = await Promise.all([loadGatewayModule(root, 'src/config.mjs')]);
+    const configPath = CONFIG_PATH ?? path.join(root, 'config.json');
+    if (!probeWritable(configPath)) throw new Error(`配置文件不可写：${configPath}`);
+    const current = loadConfig();
+    const pick = (value, fallback) => (typeof value === 'boolean' ? value : fallback);
+    const self = body?.updates?.self ?? {};
+    const rea = body?.updates?.rea ?? {};
+    const updates = {
+      self: {
+        remote: typeof self.remote === 'string' && self.remote.trim() !== '' ? self.remote.trim() : (current.updates?.self?.remote ?? 'origin'),
+        checkOnStart: pick(self.checkOnStart, current.updates?.self?.checkOnStart === true),
+        autoApply: pick(self.autoApply, current.updates?.self?.autoApply === true),
+      },
+      rea: {
+        registry: typeof rea.registry === 'string' && rea.registry.trim() !== '' ? rea.registry.trim() : (current.updates?.rea?.registry ?? DEFAULT_REGISTRY),
+        checkOnStart: pick(rea.checkOnStart, current.updates?.rea?.checkOnStart === true),
+        autoApply: pick(rea.autoApply, current.updates?.rea?.autoApply === true),
+      },
+    };
+    saveConfig({ ...current, updates });
+    const state = await buildState();
+    return { ok: true, saved: true, updates, state };
+  };
+
+  /**
+   * 真的执行更新/刷新动作。这是唯一会改动本机安装或仓库的接口，所以：
+   *   - 必须显式 POST 且带 action；
+   *   - 只支持白名单里的动作（未知动作报 400 并列出可用值）；
+   *   - 一律返回做了什么、失败原因与下一步。
+   */
+  const runMaintenance = async (body) => {
+    const root = resolveGatewayRoot(configuredRoot);
+    if (!isGatewayRoot(root)) throw new Error(`找不到 rea-mcp-lite 网关：${root}`);
+    const action = String(body?.action ?? '');
+    const [{ pullSelfUpdate, pullReaUpdate, refreshAfterUpgrade }, { loadConfig, saveConfig, CONFIG_PATH }, { buildSnapshot, writeSnapshot, readSnapshot, SNAPSHOT_PATH }] = await Promise.all([
+      loadGatewayModule(root, 'src/maintenance.mjs'),
+      loadGatewayModule(root, 'src/config.mjs'),
+      loadGatewayModule(root, 'src/snapshot.mjs'),
+    ]);
+    let config = loadConfig();
+    const log = (line) => process.stderr.write(`[rea-lite-panel] ${line}\n`);
+
+    if (action === 'update-self') {
+      const result = pullSelfUpdate({ root, remote: config.updates?.self?.remote, apply: body?.apply === true, log });
+      return { ok: result.ok, action, result, state: await buildState() };
+    }
+    if (action === 'update-rea') {
+      const result = await pullReaUpdate(config, { root, apply: body?.apply === true, log });
+      return { ok: result.ok, action, result, state: await buildState() };
+    }
+    if (action === 'refresh-snapshot') {
+      const { probeTools } = await loadGatewayModule(root, 'src/probe-client.mjs');
+      const { tools } = await probeTools(config.child, { timeoutMs: 90000 });
+      const snapshot = buildSnapshot(tools ?? [], loadConfig());
+      writeSnapshot(snapshot);
+      return {
+        ok: true,
+        action,
+        result: { toolCount: snapshot.toolCount, totalTokens: snapshot.totalTokens, unassigned: snapshot.unassigned, path: SNAPSHOT_PATH },
+        state: await buildState(),
+      };
+    }
+    if (action === 'classify') {
+      const applied = await applyClassifyFromPanel(body ?? {});
+      return { ok: true, action, result: { written: applied.written, extras: applied.extras }, state: applied.state };
+    }
+    if (action === 'refresh-all') {
+      // 「一键拉齐」：拉本仓库 → 拉 REA → 刷新快照 → 归类。任一步失败都停下并报告。
+      const self = pullSelfUpdate({ root, remote: config.updates?.self?.remote, apply: body?.apply === true, log });
+      if (!self.ok) return { ok: false, action, result: { step: 'self', ...self }, state: await buildState() };
+      config = loadConfig();
+      const rea = await pullReaUpdate(config, { root, apply: body?.apply === true, log });
+      if (!rea.ok) return { ok: false, action, result: { step: 'rea', ...rea }, state: await buildState() };
+      if (rea.updated) {
+        // pullReaUpdate 自己会刷快照并归类，这里不再重复。
+        return { ok: true, action, result: { self, rea }, state: await buildState() };
+      }
+      const after = await refreshAfterUpgrade(loadConfig(), { log });
+      return { ok: true, action, result: { self, rea, after }, state: await buildState() };
+    }
+    throw new Error(`未知动作：${action || '(空)'}。可用：update-self / update-rea / refresh-snapshot / classify / refresh-all`);
+  };
+
   const handler = async (req, res) => {
     const url = new URL(req.url ?? '/', 'http://127.0.0.1');
     if (!isLoopback(req)) {
@@ -591,6 +832,26 @@ export function apply(ctx, config) {
       }
       if (route === '/tools' && req.method === 'GET') {
         sendJson(res, 200, await searchTools(url));
+        return;
+      }
+      if (route === '/maintenance' && req.method === 'GET') {
+        sendJson(res, 200, await maintenanceReport(url));
+        return;
+      }
+      if (route === '/classify' && req.method === 'GET') {
+        sendJson(res, 200, await classifyPreview(url));
+        return;
+      }
+      if (route === '/classify' && req.method === 'POST') {
+        sendJson(res, 200, await applyClassifyFromPanel(await readJsonBody(req)));
+        return;
+      }
+      if (route === '/updates' && req.method === 'POST') {
+        sendJson(res, 200, await saveUpdates(await readJsonBody(req)));
+        return;
+      }
+      if (route === '/maintenance' && req.method === 'POST') {
+        sendJson(res, 200, await runMaintenance(await readJsonBody(req)));
         return;
       }
       sendJson(res, 404, { error: `未知接口：${route}` });

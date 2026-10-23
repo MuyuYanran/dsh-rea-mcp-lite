@@ -8,7 +8,7 @@
 
 ## 一、这个仓库到底在解决什么问题
 
-REA（`rea-agents`）是一个 MCP 服务器，提供 207 个逆向工程工具（6.7.0）。直连它，模型每次都要吃掉约 53k token 的工具定义。本仓库是一个 **stdio MCP 代理**，把「工具定义」变成按需加载：默认只暴露 4 个元工具（约 414 tok），其余工具随时可通过 `call_tool` 调用。
+REA（`rea-agents`）是一个 MCP 服务器，提供 207 个逆向工程工具（6.7.0）。直连它，模型每次都要吃掉约 53k token 的工具定义。本仓库是一个 **stdio MCP 代理**，把「工具定义」变成按需加载：默认只暴露 5 个元工具（约 541 tok），其余工具随时可通过 `call_tool` 调用。
 
 核心设计取舍是 **按需暴露（progressive disclosure），不是压缩 schema**。理由在 README 的「为什么不是压缩 schema」一节，实测数据是：REA 报文里 91.4% 是 `outputSchema`，而它根本不进模型上下文。别再把精力花在砍 schema 上。
 
@@ -17,12 +17,12 @@ REA（`rea-agents`）是一个 MCP 服务器，提供 207 个逆向工程工具�
 ```
 DSH ──stdio──> src/proxy.mjs ──stdio──> rea.mjs mcp（子进程）
                     │
-                    └─ 4 个元工具 + 当前加载族的工具（热切换）
+                    └─ 5 个元工具 + 当前加载族的工具（热切换）
 ```
 
 ---
 
-## 二、动手前必须知道的六条
+## 二、动手前必须知道的八条
 
 ### 1. 不要把 REA 的工具数量或 token 总量写进代码或断言
 
@@ -81,11 +81,30 @@ DSH 内置客户端会自动协商到这个版本。代理必须满足（否则�
 
 已归族但当前 REA 版本没有的工具不会报错，只显示为 `missing`。这是有意的：跨版本共存。
 
-REA 每次大版本升级后应该做的事：跑 `node probe/probe-tools.mjs` 导出新工具表 → 对比找新增 → 归族 → 跑 `node src/cli.mjs snapshot`。
+**自动归类**（`src/classify.mjs`）：`node src/cli.mjs classify` 给未归族工具打分并给建议，`--apply` 把高置信度的写进 `config.json` 的 `bundleExtras`，`--set tool=bundle,…` 手工指定。`update-rea --apply` 升级完会自动跑一遍。
 
-### 6. 自定义族与内置族是**并列**关系，不是覆盖
+三个坑（都踩过）：
 
-`effectiveBundles(custom)` 把两者合并。让用户改写内置族会在升级时产生难以解释的漂移；自定义族是用户自己的视角，同一个工具可以既在 `native` 又在自定义族里（内置族本来就有重叠）。
+- **别用硬编码关键词表**。第一版给每族列关键词，结果 `verify_swift_protocol_conformance` 被 `verify` 拉去 evidence 而不是 apple。现在用**词元稀有度**（df：一个词出现在几个族里）+ 停用词表：专属词（dart/pcap/frida）权重高，通用动词（inspect/verify/compare）权重低。
+- **置信度要诚实**。高置信度不仅要求分数，还要求明显领先第二名（`CONFIDENT_MARGIN`）。同分就写「不确定」，别自动写。
+- **归类结果写 `bundleExtras`，不改 `bundles.mjs`**。`effectiveBundles(custom, extras)` 做增量合并；内置清单保持人工维护，机器判断另存一层，删掉就回到原样。
+
+### 6. 自定义族、内置族、追加归类是**三者并列**，不是覆盖
+
+`effectiveBundles(custom, extras)` 依次合并：内置族 → 自定义族 → 追加归类。让用户改写内置族会在升级时产生难以解释的漂移；自定义族是用户自己的视角，同一个工具可以既在 `native` 又在自定义族里（内置族本来就有重叠）。
+
+### 7. 自动更新默认全关，写动作必须显式
+
+`src/updates.mjs` + `src/maintenance.mjs` 做三件事：查本仓库（git 远端）、查 REA 本体（npm registry）、算工具覆盖差集。
+
+- `config.updates.*.checkOnStart` 只记日志；`autoApply` 才会改本机。
+- `checkSelfUpdate` 只做 `git fetch` 与 `rev-list`，**从不** merge；`applySelfUpdate` 只走 `git merge --ff-only`，并且**脏工作区或有本地提交时直接拒绝** —— 那不是脚本能替人决定的事。
+- `applyReaUpdate` 先把清单/锁文件备份到 `_upgrade-backup-<时间戳>/`，装失败会把清单拷回并重装。
+- 面板与元工具的写动作都是白名单 action，未知 action 报出可用列表。
+
+### 8. `CONFIG_PATH` 常量会把真实配置写脏
+
+`config.mjs` 导出的 `CONFIG_PATH` 是**模块求值那一刻**的路径；之后改 `REA_LITE_CONFIG` 它不会跟着变。第一版 `saveConfig` 用了常量，自检脚本于是把真实 `config.json` 写了 `bundleExtras`。现在读写都走 `configPath()`（每次读环境变量）。在同进程里换配置目录时，别再引用常量。
 
 ---
 
@@ -94,12 +113,16 @@ REA 每次大版本升级后应该做的事：跑 `node probe/probe-tools.mjs` �
 | 文件 | 职责 | 改动时的注意点 |
 | --- | --- | --- |
 | `src/proxy.mjs` | 代理主体：路由、预取、暴露计算、配置热重载 | 改握手/热重载逻辑后必跑 `test/reload-child.mjs` |
-| `src/meta-tools.mjs` | 4 个元工具的定义 | 这里的文本模型会直接读到，别写死版本相关数字 |
+| `src/meta-tools.mjs` | 5 个元工具的定义 | 这里的文本模型会直接读到，别写死版本相关数字 |
 | `src/bundles.mjs` | 族清单与族运算（`effectiveBundles` / `normalizeCustomBundle` / `describeBundles` / `unassignedTools`） | 新增工具归族只改这里 |
 | `src/lite.mjs` | schema 裁剪与成本口径（`projectTool` / `modelVisibleChars` / `estimateTokens`） | 成本口径必须与 DSH 的 LLM 层一致：只算 name + description + inputSchema |
 | `src/snapshot.mjs` | 工具成本快照生成 | `data/tools-model.json` 是派生数据，可随时重生成 |
-| `src/config.mjs` | 配置读写与默认值 | 加新配置键时同步 `config.example.json` |
-| `src/cli.mjs` | 命令行：`status` / `list` / `use` / `custom` / `snapshot` | |
+| `src/config.mjs` | 配置读写与默认值 | 加新配置键时同步 `config.example.json`；读写走 `configPath()` 而非 `CONFIG_PATH` |
+| `src/classify.mjs` | 智能归类：词元稀有度打分、置信度分级、写入 `bundleExtras` | 别退回硬编码关键词表；置信度必须要求领先第二名 |
+| `src/updates.mjs` | 更新检查与应用（git 快进 / npm 升级 / 工具覆盖差集） | 检查必须只读；快进只在干净且无本地提交时执行 |
+| `src/maintenance.mjs` | 把体检/更新/归类/快照串成流水线，CLI 与面板与元工具共用 | 写动作只在这里实现一份，别在入口处复制判断 |
+| `src/probe-client.mjs` | 一次性 REA 会话取 `tools/list`（兼容现代/旧握手） | 现代协议要带 `_meta`；两代握手都要能连 |
+| `src/cli.mjs` | 命令行：`status` / `list` / `use` / `custom` / `snapshot` / `classify` / `check` / `doctor` / `update-self` / `update-rea` | |
 | `dsh-plugin/` | DSH 设置页（宿主 + 客户端两半） | 客户端的幂等守卫用 `Symbol.for`，不能用模块级 `Symbol()`（HMR 会重复求值） |
 | `test/` | 见下节 | |
 | `probe/` | 推导文档里那些数字的一次性分析脚本 | 大体积产物已 gitignore |
@@ -108,10 +131,12 @@ REA 每次大版本升级后应该做的事：跑 `node probe/probe-tools.mjs` �
 
 ---
 
-## 四、验收：五个脚本，职责不重叠
+## 四、验收：七个脚本，职责不重叠
 
 ```bash
 node test/plugin.test.mjs    # 90 项：假 Cordis 上下文驱动面板 API + 渲染设置页（不起 REA）
+node test/maintenance.test.mjs # 81 项：归类打分、追加归类、工具覆盖、版本比较、临时真仓库的 git 快进、面板新接口
+node test/panel-render.test.mjs # 26 项：最小 React 运行时重渲染整页（plugin.test.mjs 只覆盖首屏）
 node test/probe.mjs          # 19 项：真代理 + 真 REA，握手/元工具/转发/热加载/自定义族
 node test/reload-child.mjs   # 6 项：改 child.env → 重启 → 重新握手 → 重取工具 → 通知客户端
 node test/check-config.mjs   # 用真实 config.json 拉起 REA，确认全部工具可达
@@ -137,12 +162,16 @@ node e2e-check.mjs           # 9 项：真实代理 → 真实 REA → 真实外
 
 | 现象 | 原因 | 处理 |
 | --- | --- | --- |
+| 设置页白屏 / 「更新与体检」区块不显示 | 渲染层取错属性（首屏测试覆盖不到） | `node test/panel-render.test.mjs`，它会用带数据的状态重渲染整页 |
 | 面板显示 0 工具 | MCP 协议三条要求没满足（见第 3 条），错误被 `failOnStartupError:false` 吞掉 | 用真 MCP 客户端复现，别手写 JSON-RPC |
 | 改了 `config.json` 但 REA 还是找不到工具 | 改的是 `child.env`，需要重启子进程 | 已实现自动重启；确认日志里有「子进程启动参数/env 变了，重启 REA」 |
 | 某个族显示「0 个工具」 | 当前 REA 版本没有这些工具 | 正常，不是坏了 |
 | 工具数比文档写的多/少 | 文档数字是按某版本写的 | 以 `data/tools-model.json` 为准 |
 | `test/plugin.test.mjs` 报「全量成本」不符 | 快照过期 | `node src/cli.mjs snapshot` |
 | Windows 上 `start_gdb_session` 等报 `capability_unavailable` | REA 源码硬判 Linux | 无解，用 Frida 替代 |
+| REA 升级后出现「未归族」工具 | 族清单是静态的 | `node src/cli.mjs classify`，高置信度 `--apply` |
+| `update-rea --apply` 后工具列表还是旧的 | 子进程没重启 | 代理自己会重启；面板/CLI 单独跑时需重启 DSH 或让代理重连 |
+| 面板「更新与体检」结论显示「无法检查：这个目录不是 git 仓库」 | 网关目录不在 git 仓库里（plugin 的 root 指错） | 检查插件行 `config.root` / `REA_LITE_ROOT` |
 
 ---
 

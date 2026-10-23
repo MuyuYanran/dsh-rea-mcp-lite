@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "REA Tool Gateway",
-    "description": "Load REA's 170 reverse-engineering tools on demand: pick feature bundles, see the context cost, hot-swap in about a second."
+    "description": "Load REA's 207 reverse-engineering tools on demand: pick feature bundles, see the context cost, hot-swap in about a second — plus update checks for this repo and REA, and automatic classification of newly added tools."
   }
 }

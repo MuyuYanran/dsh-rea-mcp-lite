@@ -37,7 +37,7 @@ export function buildSnapshot(rawTools, config) {
   const lite = config?.lite ?? 'mild';
   const shortDesc = config?.shortDescription !== false;
   // 族归属按「内置族 + 用户自定义族」算，这样面板上自定义族也能看到自己的工具。
-  const table = effectiveBundles(config?.customBundles);
+  const table = effectiveBundles(config?.customBundles, config?.bundleExtras);
   const tools = (rawTools ?? [])
     .map((tool) => {
       const projected = projectTool(tool, { lite, shortDesc });

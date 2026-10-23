@@ -1,14 +1,14 @@
 ---
 name: rea-tool-gateway
-description: Use when REA tools appear as the mcp__rea__ meta tools (search_tools / tool_schema / call_tool / bundles) instead of the full set (207 tools on REA 6.7.0). Explains how to reach every REA reverse-engineering tool through the gateway, when to load a bundle, and how to switch tool sets at runtime.
+description: Use when REA tools appear as the mcp__rea__ meta tools (search_tools / tool_schema / call_tool / bundles / maintenance) instead of the full set (207 tools on REA 6.7.0). Explains how to reach every REA reverse-engineering tool through the gateway, when to load a bundle, how to switch tool sets at runtime, and how to check/apply gateway and REA updates plus classify newly added tools.
 metadata:
   version: "1"
 ---
 
 # REA 网关模式
 
-当 REA 的工具列表里只有 4 个元工具（`mcp__rea__search_tools`、`mcp__rea__tool_schema`、
-`mcp__rea__call_tool`、`mcp__rea__bundles`）时，说明 `rea-mcp-lite` 代理正在把关：
+当 REA 的工具列表里只有几个元工具（`mcp__rea__search_tools`、`mcp__rea__tool_schema`、
+`mcp__rea__call_tool`、`mcp__rea__bundles`、`mcp__rea__maintenance`）时，说明 `rea-mcp-lite` 代理正在把关：
 REA 的全部工具（6.7.0 为 207 个）**没有消失**，只是默认不摆到桌面上（省约 53k token 上下文）。
 
 ## 调用任何 REA 工具
@@ -46,6 +46,19 @@ mcp__rea__bundles { "action": "set",        "bundles": ["js","web"] }# 直接替
 
 按任务挑族：Electron/JS 应用 → `js`；网页/CDP → `web`；原生二进制 → `nav` + `native`；
 .NET → `managed`；Android/APK → `android`；跨版本对比与证据包 → `evidence`。
+
+## 体检与更新
+
+```
+mcp__rea__maintenance { "action": "report" }    # 本仓库 / REA 本体 / 工具覆盖（默认只读）
+mcp__rea__maintenance { "action": "classify" }  # 未归族的新工具 + 建议（含给你判断的题面）
+mcp__rea__maintenance { "action": "snapshot" }  # 刷新工具成本快照
+```
+
+`report` 里的「未归族」意味着 REA 升级后新增的工具还没进任何族：**这些工具仍然能用 `call_tool`
+调用**，只是不会被 `bundles` 加载进来。要用族的方式用它们，先归类：
+`{"action":"classify","apply":true}` 写高置信度的，`{"action":"classify","manual":{"工具名":"族id"}}`
+写你判断的。写动作才改 `config.json`，只读动作不改任何东西。
 
 ## 注意
 

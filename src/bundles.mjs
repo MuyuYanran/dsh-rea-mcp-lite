@@ -170,10 +170,11 @@ const RESERVED_IDS = new Set([ALL_BUNDLE]);
  * @param {object} custom 配置里的 customBundles：{ id: { label?, hint?, tools? } }
  * @returns 合并后的族表（内置族定义原样保留，自定义族多带 custom: true）
  */
-export function effectiveBundles(custom) {
-  const merged = { ...BUNDLES };
-  if (custom === null || typeof custom !== 'object') return merged;
-  for (const [id, def] of Object.entries(custom)) {
+export function effectiveBundles(custom, extras) {
+  // 内置族要复制成新数组：extras 会往里追加工具，直接改 BUNDLES 会污染同进程里的其他读者。
+  const merged = {};
+  for (const [id, def] of Object.entries(BUNDLES)) merged[id] = { ...def, tools: [...(def.tools ?? [])] };
+  for (const [id, def] of Object.entries(custom ?? {})) {
     if (!BUNDLE_ID_RE.test(id) || RESERVED_IDS.has(id)) continue;
     if (def === null || typeof def !== 'object') continue;
     const tools = Array.isArray(def.tools) ? [...new Set(def.tools.filter((t) => typeof t === 'string' && t !== ''))] : [];
@@ -184,7 +185,24 @@ export function effectiveBundles(custom) {
       tools,
     };
   }
+  // 追加归类（config.bundleExtras）：把 REA 新版新增的工具补进已有族。
+  // 只做增量合并，不替换内置清单 —— 升级时不会产生难解释的漂移，删掉这一项就回到原样。
+  for (const [id, list] of Object.entries(extras ?? {})) {
+    if (merged[id] === undefined || !Array.isArray(list)) continue;
+    const added = list.filter((name) => typeof name === 'string' && name !== '');
+    merged[id] = { ...merged[id], tools: [...new Set([...merged[id].tools, ...added])] };
+  }
   return merged;
+}
+
+/** 被 config.bundleExtras 追加进来的工具（用于在面板/CLI 上标出「自动归类」）。 */
+export function extrasOf(defs, extras) {
+  const out = [];
+  for (const [id, list] of Object.entries(extras ?? {})) {
+    if (!Array.isArray(list) || defs?.[id] === undefined) continue;
+    for (const name of list) if (!(BUNDLES[id]?.tools ?? []).includes(name)) out.push({ name, bundle: id });
+  }
+  return out;
 }
 
 /**

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "DSH 与 REA 之间的 MCP 按需加载网关：把 REA 的全部工具压缩成 4 个元工具 + 可选功能族，支持热切换。",
+  "description": "DSH 与 REA 之间的 MCP 按需加载网关：把 REA 的全部工具压缩成 5 个元工具 + 可选功能族，支持热切换、自动归类新工具与更新体检。",
   "scripts": {
     "probe": "node test/probe.mjs",
     "test:panel": "node test/plugin.test.mjs",
@@ -12,6 +12,11 @@
     "test:config": "node test/check-config.mjs",
     "snapshot": "node src/cli.mjs snapshot",
     "list": "node src/cli.mjs list",
-    "status": "node src/cli.mjs status"
+    "status": "node src/cli.mjs status",
+    "test:maintenance": "node test/maintenance.test.mjs",
+    "check": "node src/cli.mjs check",
+    "doctor": "node src/cli.mjs doctor",
+    "classify": "node src/cli.mjs classify",
+    "test:render": "node test/panel-render.test.mjs"
   }
 }

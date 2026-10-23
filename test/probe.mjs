@@ -5,12 +5,34 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { estimateTokens } from '../src/lite.mjs';
+import { META_TOOLS } from '../src/meta-tools.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PROXY = path.join(HERE, '..', 'src', 'proxy.mjs');
 const TEST_CONFIG = path.join(HERE, 'probe-config.json');
+/** 元工具个数从定义处派生，不写死——加元工具时测试不该红。 */
+const META_COUNT = META_TOOLS.length;
+const META_NAMES_LIST = META_TOOLS.map((t) => t.name);
 
-fs.writeFileSync(TEST_CONFIG, JSON.stringify({ activeBundles: [] }, null, 2));
+/**
+ * 测试用配置：默认值里**没有**能直接跑的 REA 路径（仓库不携带本机绝对路径），
+ * 所以这里从真实 config.json（已 gitignore）借 child 块；没有配置时退回环境变量。
+ * 两条都拿不到就让 REA 启动失败并如实报出来 —— 那比偷偷指向别人的磁盘更好。
+ */
+function testConfig() {
+  const base = { activeBundles: [] };
+  const real = path.join(HERE, '..', 'config.json');
+  if (fs.existsSync(real)) {
+    const parsed = JSON.parse(fs.readFileSync(real, 'utf8'));
+    if (parsed?.child) return { ...base, child: parsed.child };
+  }
+  if (process.env.REA_LITE_LAUNCHER) {
+    return { ...base, child: { command: process.execPath, args: [process.env.REA_LITE_LAUNCHER, 'mcp'], env: { REA_MCP_INPUT_SCHEMA_PROFILE: 'compact' } } };
+  }
+  return base;
+}
+
+fs.writeFileSync(TEST_CONFIG, JSON.stringify(testConfig(), null, 2));
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = [];
@@ -90,10 +112,10 @@ try {
   // 2. 默认只暴露元工具
   const list1 = await client.request('tools/list');
   const names1 = (list1.result?.tools ?? []).map((t) => t.name).sort();
-  check('默认只暴露 4 个元工具', names1.length === 4, names1.join(', '));
-  check('元工具齐全', ['bundles', 'call_tool', 'search_tools', 'tool_schema'].every((n) => names1.includes(n)));
+  check('默认只暴露元工具', names1.length === META_COUNT, names1.join(', '));
+  check('元工具齐全', META_NAMES_LIST.every((n) => names1.includes(n)));
   const metaTokens = estimateTokens(list1.result.tools);
-  console.log(`  元工具上下文成本：~${metaTokens} tok（原全量约 70k tok）`);
+  console.log(`  元工具上下文成本：~${metaTokens} tok（全量数字随 REA 版本漂移，这里不写死）`);
 
   // 3. 搜索全部工具
   const search = await client.request('tools/call', { name: 'search_tools', arguments: { query: 'pseudo', limit: 5 } });
@@ -124,7 +146,7 @@ try {
 
   const list2 = await client.request('tools/list');
   const names2 = (list2.result?.tools ?? []).map((t) => t.name);
-  check('web 族被加载后工具数 = 4 + 15', names2.length === 19, `${names2.length} 个：${names2.filter((n) => !names1.includes(n)).join(', ')}`);
+  check('web 族被加载后工具数 = 元工具 + web 族', names2.length === META_COUNT + 15, `${names2.length} 个：${names2.filter((n) => !names1.includes(n)).join(', ')}`);
   check('web 族工具确实在里面', names2.includes('inspect_web_page') && names2.includes('analyze_web_bundle'));
   console.log(`  加载 web 族后上下文成本：~${estimateTokens(list2.result.tools)} tok`);
 
@@ -133,7 +155,7 @@ try {
   await client.request('tools/call', { name: 'bundles', arguments: { action: 'set', bundles: [] } });
   const changed2 = await client.waitForNotification('notifications/tools/list_changed');
   const list3 = await client.request('tools/list');
-  check('热卸载后回到 4 个元工具', (list3.result?.tools ?? []).length === 4, `${list3.result?.tools?.length} 个`);
+  check('热卸载后回到元工具', (list3.result?.tools ?? []).length === META_COUNT, `${list3.result?.tools?.length} 个`);
   check('卸载同样触发 list_changed', !!changed2);
 
   // 9. 全部加载时的成本（仅统计，不真的加载）
@@ -143,27 +165,26 @@ try {
   const allNames = (list4.result?.tools ?? []).map((t) => t.name);
   // 工具总数随 REA 版本变化（6.4.0=170，6.7.0=207），所以不写死：
   // all 族应当把「元工具之外的全部工具」一个不漏地暴露出来。
-  const META_NAMES = ['bundles', 'call_tool', 'search_tools', 'tool_schema'];
-  const nonMeta = allNames.filter((n) => !META_NAMES.includes(n));
+  const nonMeta = allNames.filter((n) => !META_NAMES_LIST.includes(n));
   check(
     'all 族暴露全部工具 + 元工具',
-    allNames.length === nonMeta.length + META_NAMES.length && META_NAMES.every((n) => allNames.includes(n)),
-    `${allNames.length} 个（${nonMeta.length} 工具 + ${META_NAMES.length} 元工具）`,
+    allNames.length === nonMeta.length + META_COUNT && META_NAMES_LIST.every((n) => allNames.includes(n)),
+    `${allNames.length} 个（${nonMeta.length} 工具 + ${META_COUNT} 元工具）`,
   );
   console.log(`  全量加载（裁剪后）上下文成本：~${allTokens} tok`);
   await client.request('tools/call', { name: 'bundles', arguments: { action: 'set', bundles: [] } });
 
   // 10. 自定义功能族：用户自己把工具编成一组，并能像内置族一样开关
+  //     注意保留 child 块：改配置不能把「怎么拉起 REA」弄丢（重写配置会让子进程换掉）。
   const custom = { 'my-re': { label: '我的常用', hint: '手工挑的', tools: ['address_name', 'procedure_pseudo_code', 'xrefs'] } };
-  fs.writeFileSync(TEST_CONFIG, JSON.stringify({ activeBundles: [], customBundles: custom }, null, 2));
+  fs.writeFileSync(TEST_CONFIG, JSON.stringify({ ...testConfig(), activeBundles: [], customBundles: custom }, null, 2));
   await sleep(600); // 等代理 fs.watch 重载配置
   const customRes = await client.request('tools/call', { name: 'bundles', arguments: { action: 'activate', bundles: ['my-re'] } });
   const customText = textOf(customRes.result);
   check('自定义族能被 activate（不报未知族）', !customText.includes('未知功能族'), customText.split('\n')[0] ?? '');
   check('自定义族在 bundles 输出里标为自定义', customText.includes('（自定义）'));
   const list5 = await client.request('tools/list');
-  const META = ['bundles', 'call_tool', 'search_tools', 'tool_schema'];
-  const customNames = (list5.result?.tools ?? []).map((t) => t.name).filter((n) => !META.includes(n));
+  const customNames = (list5.result?.tools ?? []).map((t) => t.name).filter((n) => !META_NAMES_LIST.includes(n));
   check(
     '激活自定义族后只暴露它那 3 个工具',
     customNames.length === 3 && ['address_name', 'procedure_pseudo_code', 'xrefs'].every((n) => customNames.includes(n)),

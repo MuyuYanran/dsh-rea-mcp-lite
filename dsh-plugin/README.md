@@ -15,6 +15,8 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 - **会话内实测**：直接读 DSH 工具注册表里真实存在的 `mcp__rea__*` 工具数与字符数（与网关同一套 3.6 字符/token 口径），保存后约 1 秒跟随变化 —— 这是"热切换到底生效没有"的权威答案。
 - **自定义分组（可视化编辑）**：左边列出全部工具（带一句话定义与成本）供勾选，右边是本组已选；支持拖动加入、整族一键并入、改组名时勾选自动跟随、随时编辑已有分组。以勾选为主是因为 WCAG 2.5.7 要求拖动必须有非拖动替代。
 - **查工具属于哪个族**：按名字/说明搜索（REA 6.4.0 是 170 个，6.7.0 是 207 个）。
+- **更新与体检**：一张卡片给出三块结论 —— 本仓库落后远端几个提交、REA 本体装的是哪版/npm 上有哪版、当前 REA 有多少工具还没归族。按钮是「更新本仓库」「升级 REA」「刷新快照」「写入高置信度归类」。默认读工具快照（一秒内出结果），勾「向 REA 实时查询」才真的起一次 REA。
+- **归类预览**：列出每个未归族的新工具与建议归属，标出置信度（高/中/低）。高置信度可一键写入 `config.json` 的 `bundleExtras`；不确定的留给模型判断（CLI `classify` 会打印题面）。
 - **服务器状态**：已连接 / 已停用 / 启用但未连上，并在被停用时提示去「MCP 管理」启用。
 
 成本数据来自网关生成的 `data/tools-model.json`（170 个工具的字符数、一句话描述、所属族，约 30 KB，不含完整 schema）。代理每次连上 REA 都会刷新它，也可以手动 `node src/cli.mjs snapshot` 重新生成。
@@ -34,11 +36,13 @@ dsh plugin --profile <profile> add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 | `root` | 网关仓库目录。默认按「本包目录的上一级」找（仓库布局 `dsh-plugin/` 与 `src/` 同级）。 |
 | `patchPath` | profile patch 路径（字符串或数组），用于判断 rea 是否被停用。默认自动找 `$DSH_HOME/cordis.patch.yml` 与 profile 的 `cordis.patch.yml`；DSH Desktop 把 profile 目录放在别处时才需要显式指定。 |
 
+「更新与体检」的写动作（升级 REA / 更新仓库 / 写归类）走 `POST /rea-lite/maintenance`（`action` = `update-self` / `update-rea` / `refresh-snapshot` / `classify` / `refresh-all`）与 `POST /rea-lite/classify`；动作名白名单校验，未知动作报 400 并列出可用值。更新开关存在 `config.json` 的 `updates`，默认全关。
+
 环境变量 `REA_LITE_ROOT` 也能指定网关目录（优先级低于插件行的 `root`）。
 
 ## 边界
 
 - 只管「加载哪些族」，不管 MCP 服务器的启停 —— 那是「MCP 管理」的事。
 - 只服务回环地址：`/rea-lite/*` 对非 `127.0.0.1`/`::1` 来源一律 403。
-- 只写网关 `config.json` 里的 `activeBundles` 一个字段，其余字段原样保留。
-- 自检：`node test/plugin.test.mjs`（58 项，用假 Cordis 上下文驱动真实的 `apply()`）。
+- 只写网关 `config.json` 的这几个字段：`activeBundles`（勾选）、`customBundles`（自定义分组）、`bundleExtras`（归类结果）、`updates`（更新开关）；其余字段原样保留（尤其 `child`）。
+- 自检：`node test/plugin.test.mjs`（90 项，用假 Cordis 上下文驱动真实的 `apply()`）+ `node test/maintenance.test.mjs`（81 项，含面板新增接口）。

@@ -103,6 +103,50 @@ window.__ModuleLoader__.load({
         searchCount: '匹配',
         noBundle: '未归族',
         hint: '提示',
+        // ── 更新与体检 ──
+        maintTitle: '更新与体检',
+        maintHint: '检查本仓库、REA 本体、以及「REA 有但功能族没收录」的工具。检查只读，点更新才会改本机。',
+        maintCheck: '检查更新',
+        maintSummary: '结论',
+        maintIdle: '还没检查。点「检查更新」看本仓库与 REA 是否有新版、有没有未归族的工具。',
+        maintSelf: '本仓库',
+        maintRea: 'REA 本体',
+        maintCoverage: '工具覆盖',
+        maintUpToDate: '已是最新',
+        maintBehind: '落后 {n} 个提交',
+        maintAhead: '本地领先 {n} 个提交',
+        maintDirty: '工作区有未提交改动',
+        maintDiverged: '与远端分叉，需手工处理',
+        maintInstall: '已安装',
+        maintLatest: '最新',
+        maintNoRegistry: '取不到 npm 版本（离线或代理）',
+        maintUpdateSelf: '更新本仓库',
+        maintUpdateRea: '升级 REA',
+        maintRefreshSnapshot: '刷新快照',
+        maintClassify: '看归类建议',
+        maintClassifyApply: '写入高置信度归类',
+        maintClassifyNone: '没有未归族的工具',
+        maintClassifyHint: '新工具不归族就加载不到它。高置信度可直接写入；不确定的让模型判断（CLI: classify）。',
+        maintSource: '数据来源',
+        maintLive: '向 REA 实时查询',
+        maintBusy: '正在执行…',
+        maintUpdated: '已完成',
+        maintFailed: '失败',
+        maintPlan: '计划',
+        maintApplyDryRun: '这是预览，未改动任何东西',
+        maintMore: '还有',
+        maintAuto: '启动时自动检查',
+        maintAutoApply: '启动时自动应用',
+        maintAutoHint: '默认全关：更新会改本机安装与仓库，必须显式开启。',
+        maintExtras: '自动归类',
+        maintLocalMissing: '族内工具本地 REA 没有',
+        maintUnassigned: '未归族',
+        maintToolCount: '工具',
+        maintAssigned: '已归族',
+        maintConfHigh: '高',
+        maintConfMedium: '中',
+        maintConfLow: '低',
+        maintNoSuggestion: '无建议',
       },
       en: {
         nav: 'REA tools',
@@ -182,13 +226,62 @@ window.__ModuleLoader__.load({
         searchCount: 'matches',
         noBundle: 'unassigned',
         hint: 'Note',
+        maintTitle: 'Updates & health',
+        maintHint: 'Checks this repo, the REA package, and tools REA ships that no bundle covers. Checking is read-only; only Update touches your machine.',
+        maintCheck: 'Check for updates',
+        maintSummary: 'Verdict',
+        maintIdle: 'Not checked yet. Press “Check for updates” to see whether this repo or REA has new versions, and whether any tool is unbundled.',
+        maintSelf: 'This repo',
+        maintRea: 'REA package',
+        maintCoverage: 'Tool coverage',
+        maintUpToDate: 'up to date',
+        maintBehind: '{n} commits behind',
+        maintAhead: '{n} commits ahead',
+        maintDirty: 'uncommitted changes',
+        maintDiverged: 'diverged from remote; merge by hand',
+        maintInstall: 'installed',
+        maintLatest: 'latest',
+        maintNoRegistry: 'cannot reach the npm registry',
+        maintUpdateSelf: 'Update repo',
+        maintUpdateRea: 'Upgrade REA',
+        maintRefreshSnapshot: 'Refresh snapshot',
+        maintClassify: 'Show classification',
+        maintClassifyApply: 'Write high-confidence picks',
+        maintClassifyNone: 'Every tool is bundled',
+        maintClassifyHint: 'A new tool that is not in any bundle cannot be loaded by bundle. High-confidence picks can be written directly; ask the model about the rest (CLI: classify).',
+        maintSource: 'Source',
+        maintLive: 'Ask REA live',
+        maintBusy: 'Running…',
+        maintUpdated: 'Done',
+        maintFailed: 'Failed',
+        maintPlan: 'Plan',
+        maintApplyDryRun: 'Preview only — nothing was changed',
+        maintMore: 'and more',
+        maintAuto: 'Check at startup',
+        maintAutoApply: 'Apply at startup',
+        maintAutoHint: 'Off by default: updating changes your local install and repo, so it must be opted into.',
+        maintExtras: 'auto-classified',
+        maintLocalMissing: 'tools in bundles that local REA lacks',
+        maintUnassigned: 'unbundled',
+        maintToolCount: 'tools',
+        maintAssigned: 'bundled',
+        maintConfHigh: 'high',
+        maintConfMedium: 'medium',
+        maintConfLow: 'low',
+        maintNoSuggestion: 'no suggestion',
       },
     };
 
+    /** 词典查询；第二参数是占位符表（{n} 之类），缺了就当普通字符串用。 */
     function makeT(locale) {
       var table = DICT[locale === 'en' ? 'en' : 'zh'];
-      return function (key) {
-        return table[key] === undefined ? key : table[key];
+      return function (key, params) {
+        var value = table[key];
+        if (value === undefined) return key;
+        if (params === undefined || params === null) return value;
+        return String(value).replace(/\{(\w+)\}/g, function (match, name) {
+          return params[name] === undefined ? match : String(params[name]);
+        });
       };
     }
 
@@ -282,6 +375,24 @@ window.__ModuleLoader__.load({
       '.realp-tool p{margin:0;color:var(--dsw-alias-label-secondary);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
       '.realp-empty{padding:10px 12px;color:var(--dsw-alias-label-secondary);font-size:12px}',
       '.realp-foot{color:var(--dsw-alias-label-secondary);font-size:11px;word-break:break-all}',
+      // ── 更新与体检 ──
+      '.realp-maint{display:flex;flex-direction:column;gap:8px}',
+      '.realp-maint-grid{display:flex;flex-wrap:wrap;gap:8px}',
+      '.realp-maint-card{flex:1 1 240px;min-width:220px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);padding:10px 12px;display:flex;flex-direction:column;gap:6px}',
+      '.realp-maint-card h4{margin:0;font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px}',
+      '.realp-maint-line{color:var(--dsw-alias-label-secondary);font-size:11px;word-break:break-all}',
+      '.realp-maint-line strong{color:var(--dsw-alias-label-primary);font-weight:600}',
+      '.realp-maint-tone-ok h4{color:var(--dsw-alias-state-success-primary)}',
+      '.realp-maint-tone-warn h4{color:var(--dsw-alias-state-warn-primary)}',
+      '.realp-maint-tone-bad h4{color:var(--dsw-alias-state-error-primary)}',
+      '.realp-maint-log{max-height:200px;overflow:auto;border:1px solid var(--dsw-alias-border-l1);border-radius:8px;padding:8px 10px;background:var(--dsw-alias-bg-layer-1);font-size:11px;line-height:1.45;white-space:pre-wrap;word-break:break-all;color:var(--dsw-alias-label-secondary)}',
+      '.realp-maint-rows{display:flex;flex-direction:column;gap:2px;max-height:220px;overflow:auto}',
+      '.realp-maint-row{display:flex;align-items:center;gap:8px;font-size:11px;padding:2px 4px;border-radius:5px}',
+      '.realp-maint-row:hover{background:var(--dsw-alias-bg-layer-2)}',
+      '.realp-maint-row-name{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--dsw-alias-label-primary)}',
+      '.realp-maint-arrow{color:var(--dsw-alias-label-secondary)}',
+      '.realp-maint-target{color:var(--dsw-alias-brand-primary)}',
+      '.realp-maint-switch{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dsw-alias-label-secondary)}',
     ].join('');
 
     /**
@@ -365,6 +476,13 @@ window.__ModuleLoader__.load({
       var [allTools, setAllTools] = useState([]);
       var [toolFilter, setToolFilter] = useState('');
       var [pickedBundle, setPickedBundle] = useState('');
+      // 更新与体检：report 为 null 表示还没检查过（不自动发起，避免每次打开设置页都打网络）。
+      var [report, setReport] = useState(null);
+      var [maintBusy, setMaintBusy] = useState('');
+      var [maintLog, setMaintLog] = useState('');
+      var [maintError, setMaintError] = useState('');
+      var [classify, setClassify] = useState(null);
+      var [maintLive, setMaintLive] = useState(false);
       var pollRef = useRef(null);
 
       var t = makeT(locale);
@@ -553,6 +671,88 @@ window.__ModuleLoader__.load({
           })
           .then(function () {
             setBusy(false);
+          });
+      }
+
+      // ── 更新与体检 ────────────────────────────────────────────────────────
+
+      /** 只读检查：并发拿报告与归类预览；任何一步失败都只写进 maintError。 */
+      function runCheck() {
+        setMaintBusy('check');
+        setMaintError('');
+        setMaintLog('');
+        api('maintenance' + (maintLive ? '?live=1&fetch=1' : ''))
+          .then(function (payload) {
+            setReport(payload);
+            return api('classify').then(
+              function (preview) {
+                setClassify(preview);
+              },
+              function () {
+                setClassify(null);
+              },
+            );
+          })
+          .catch(function (failure) {
+            setMaintError(String(failure.message || failure));
+          })
+          .then(function () {
+            setMaintBusy('');
+          });
+      }
+
+      /** 真正执行动作（会改本机）：把结果文本落到日志区，并刷新状态。 */
+      function runAction(action, extra) {
+        setMaintBusy(action);
+        setMaintError('');
+        setMaintLog('');
+        var body = { action: action };
+        if (extra) Object.assign(body, extra);
+        api('maintenance', body)
+          .then(function (payload) {
+            var lines = [];
+            var result = payload.result || {};
+            if (payload.ok === false) {
+              lines.push(t('maintFailed') + '：' + (result.reason || '未知原因'));
+            } else {
+              lines.push(t('maintUpdated') + '：' + action);
+            }
+            if (result.dryRun) lines.push(t('maintApplyDryRun'));
+            if (result.plan) lines.push(typeof result.plan === 'string' ? result.plan : JSON.stringify(result.plan, null, 2));
+            if (result.apply && result.apply.output) lines.push(String(result.apply.output).slice(-1500));
+            if (result.output) lines.push(String(result.output).slice(-1500));
+            if (result.after && result.after.warnings && result.after.warnings.length) lines.push(result.after.warnings.join('\n'));
+            if (payload.state) setState(payload.state);
+            setMaintLog(lines.join('\n'));
+            // 干完之后重新检查一遍，让面板显示新的结论。
+            return api('maintenance').then(function (fresh) {
+              setReport(fresh);
+              return api('classify').then(function (preview) { setClassify(preview); }, function () {});
+            });
+          })
+          .catch(function (failure) {
+            setMaintError(String(failure.message || failure));
+          })
+          .then(function () {
+            setMaintBusy('');
+          });
+      }
+
+      /** 写更新开关（config.updates）。 */
+      function saveUpdateSetting(kind, key, value) {
+        if (state === null) return;
+        var current = state.updates || {};
+        var next = {
+          self: Object.assign({}, current.self || {}),
+          rea: Object.assign({}, current.rea || {}),
+        };
+        next[kind][key] = value;
+        api('updates', { updates: next })
+          .then(function (payload) {
+            setState(payload.state);
+          })
+          .catch(function (failure) {
+            setMaintError(String(failure.message || failure));
           });
       }
 
@@ -1050,6 +1250,299 @@ window.__ModuleLoader__.load({
         state.snapshot.unassigned && state.snapshot.unassigned.length > 0
           ? h('div', { className: 'realp-note realp-note-warn' }, t('unassigned') + '：' + state.snapshot.unassigned.join(', '))
           : null,
+
+        // ── 更新与体检 ─────────────────────────────────────────────────────
+        h(
+          'div',
+          { className: 'realp-section' },
+          h(
+            'div',
+            { className: 'realp-section-head' },
+            h('h3', null, t('maintTitle')),
+            h(
+              'div',
+              { className: 'realp-actions' },
+              h(
+                'label',
+                { className: 'realp-maint-switch' },
+                h('input', {
+                  type: 'checkbox',
+                  checked: maintLive,
+                  disabled: maintBusy !== '',
+                  onChange: function (event) { setMaintLive(event.target.checked); },
+                }),
+                t('maintLive'),
+              ),
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'realp-btn',
+                  disabled: maintBusy !== '' || busy,
+                  onClick: runCheck,
+                },
+                maintBusy === 'check' ? t('maintBusy') : t('maintCheck'),
+              ),
+            ),
+          ),
+          h('p', { className: 'realp-section-hint' }, t('maintHint')),
+
+          maintError !== '' ? h('div', { className: 'realp-note realp-note-error' }, maintError) : null,
+
+          report === null
+            ? h('div', { className: 'realp-note' }, t('maintIdle'))
+            : report.ok === false || !report.coverage
+              ? h('div', { className: 'realp-note realp-note-error' }, String(report.reason || report.error || '检查失败'))
+              : h(
+                'div',
+                { className: 'realp-maint' },
+                h(
+                  'div',
+                  { className: 'realp-note' + (report.summary && report.summary.indexOf('最新') >= 0 && !report.coverage.unassigned.length ? ' realp-note-ok' : ' realp-note-warn') },
+                  t('maintSummary') + '：' + (report.summary || ''),
+                ),
+                h(
+                  'div',
+                  { className: 'realp-maint-grid' },
+                  // 本仓库
+                  h(
+                    'div',
+                    {
+                      className:
+                        'realp-maint-card realp-maint-tone-' +
+                        (report.self && report.self.ok === false ? 'bad' : report.self && report.self.available ? 'warn' : 'ok'),
+                    },
+                    h('h4', null, t('maintSelf')),
+                    report.self && report.self.ok === false
+                      ? h('div', { className: 'realp-maint-line' }, report.self.reason || '—')
+                      : h(
+                          'div',
+                          { className: 'realp-maint-line' },
+                          h('strong', null, report.self && report.self.available ? t('maintBehind', { n: report.self.behind }) : t('maintUpToDate')),
+                          report.self && report.self.ahead ? ' · ' + t('maintAhead', { n: report.self.ahead }) : '',
+                          report.self && report.self.dirty ? ' · ' + t('maintDirty') : '',
+                        ),
+                    report.self && report.self.fetchError
+                      ? h('div', { className: 'realp-maint-line' }, report.self.fetchError)
+                      : null,
+                    report.self && report.self.commits && report.self.commits.length
+                      ? h(
+                          'div',
+                          { className: 'realp-maint-rows' },
+                          report.self.commits.slice(0, 8).map(function (line) {
+                            return h('div', { className: 'realp-maint-row', key: 'c-' + line }, h('span', { className: 'realp-maint-row-name' }, line));
+                          }),
+                        )
+                      : null,
+                    h(
+                      'div',
+                      { className: 'realp-actions' },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'realp-btn',
+                          disabled: maintBusy !== '' || !(report.self && report.self.available),
+                          title: report.self && report.self.fastForwardable ? '' : t('maintDiverged'),
+                          onClick: function () { runAction('update-self', { apply: true }); },
+                        },
+                        t('maintUpdateSelf'),
+                      ),
+                    ),
+                  ),
+                  // REA 本体
+                  h(
+                    'div',
+                    {
+                      className:
+                        'realp-maint-card realp-maint-tone-' +
+                        (report.rea && report.rea.ok === false ? 'bad' : report.rea && report.rea.updateAvailable ? 'warn' : 'ok'),
+                    },
+                    h('h4', null, t('maintRea')),
+                    h(
+                      'div',
+                      { className: 'realp-maint-line' },
+                      t('maintInstall') + '：',
+                      h('strong', null, (report.rea && report.rea.installed) || '—'),
+                      report.rea && report.rea.latest ? ' · ' + t('maintLatest') + '：' + report.rea.latest : '',
+                    ),
+                    report.rea && report.rea.registryError
+                      ? h('div', { className: 'realp-maint-line' }, report.rea.registryError)
+                      : null,
+                    report.rea && report.rea.install && report.rea.install.found
+                      ? h('div', { className: 'realp-maint-line' }, report.rea.install.manager + ' @ ' + report.rea.install.envDir)
+                      : h('div', { className: 'realp-maint-line' }, (report.rea && (report.rea.install && report.rea.install.reason)) || ''),
+                    report.rea && report.rea.nextStep
+                      ? h('div', { className: 'realp-maint-line' }, report.rea.nextStep)
+                      : null,
+                    h(
+                      'div',
+                      { className: 'realp-actions' },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'realp-btn realp-btn-primary',
+                          disabled: maintBusy !== '' || !(report.rea && report.rea.updateAvailable),
+                          onClick: function () { runAction('update-rea', { apply: true }); },
+                        },
+                        t('maintUpdateRea'),
+                      ),
+                    ),
+                  ),
+                  // 工具覆盖
+                  h(
+                    'div',
+                    {
+                      className:
+                        'realp-maint-card realp-maint-tone-' +
+                        (report.coverage.unassigned.length ? 'warn' : report.coverage.missingForLocal.length ? 'warn' : 'ok'),
+                    },
+                    h('h4', null, t('maintCoverage')),
+                    h(
+                      'div',
+                      { className: 'realp-maint-line' },
+                      t('maintToolCount') + '：',
+                      h('strong', null, String(report.coverage.total)),
+                      ' · ' + t('maintAssigned') + '：' + report.coverage.assigned,
+                    ),
+                    h('div', { className: 'realp-maint-line' }, t('maintSource') + '：' + report.coverage.source),
+                    report.coverage.unassigned.length
+                      ? h('div', { className: 'realp-maint-line' }, t('maintUnassigned') + '：' + report.coverage.unassigned.join(', '))
+                      : null,
+                    report.coverage.missingForLocal.length
+                      ? h('div', { className: 'realp-maint-line' }, t('maintLocalMissing') + '：' + report.coverage.missingForLocal.join(', '))
+                      : null,
+                    h(
+                      'div',
+                      { className: 'realp-actions' },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'realp-btn',
+                          disabled: maintBusy !== '',
+                          onClick: function () { runAction('refresh-snapshot'); },
+                        },
+                        t('maintRefreshSnapshot'),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // 归类预览 + 写入
+                h(
+                  'div',
+                  { className: 'realp-note' },
+                  classify && classify.counts
+                    ? classify.counts.total === 0
+                      ? t('maintClassifyNone')
+                      : classify.counts.total + ' / ' + report.coverage.total + ' — ' + t('maintClassifyHint')
+                    : t('maintClassifyHint'),
+                ),
+                classify && classify.assignments && classify.assignments.length
+                  ? h(
+                      'div',
+                      { className: 'realp-maint-rows' },
+                      classify.assignments.map(function (entry) {
+                        var tone = entry.confidence === 'high' ? t('maintConfHigh') : entry.confidence === 'medium' ? t('maintConfMedium') : t('maintConfLow');
+                        return h(
+                          'div',
+                          { className: 'realp-maint-row', key: 'cls-' + entry.name },
+                          h('span', { className: 'realp-maint-row-name' }, entry.name),
+                          h('span', { className: 'realp-maint-arrow' }, '→'),
+                          h('span', { className: 'realp-maint-target' }, entry.suggested || t('maintNoSuggestion')),
+                          h('span', { className: 'realp-tag' }, tone),
+                        );
+                      }),
+                    )
+                  : null,
+                classify && classify.applyable > 0
+                  ? h(
+                      'div',
+                      { className: 'realp-actions' },
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'realp-btn realp-btn-primary',
+                          disabled: maintBusy !== '' || !state.writable,
+                          onClick: function () { runAction('classify'); },
+                        },
+                        t('maintClassifyApply') + ' (' + classify.applyable + ')',
+                      ),
+                      h(
+                        'button',
+                        {
+                          type: 'button',
+                          className: 'realp-btn',
+                          disabled: maintBusy !== '',
+                          onClick: function () { runAction('refresh-all'); },
+                        },
+                        t('maintClassify'),
+                      ),
+                    )
+                  : null,
+
+                // 自动更新开关
+                h(
+                  'div',
+                  { className: 'realp-custom-row' },
+                  h('span', { className: 'realp-row-hint' }, t('maintAutoHint')),
+                ),
+                h(
+                  'div',
+                  { className: 'realp-custom-row' },
+                  h(
+                    'label',
+                    { className: 'realp-maint-switch' },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: !!(state.updates && state.updates.self && state.updates.self.checkOnStart),
+                      disabled: busy || !state.writable,
+                      onChange: function (event) { saveUpdateSetting('self', 'checkOnStart', event.target.checked); },
+                    }),
+                    t('maintSelf') + ' · ' + t('maintAuto'),
+                  ),
+                  h(
+                    'label',
+                    { className: 'realp-maint-switch' },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: !!(state.updates && state.updates.self && state.updates.self.autoApply),
+                      disabled: busy || !state.writable,
+                      onChange: function (event) { saveUpdateSetting('self', 'autoApply', event.target.checked); },
+                    }),
+                    t('maintSelf') + ' · ' + t('maintAutoApply'),
+                  ),
+                  h(
+                    'label',
+                    { className: 'realp-maint-switch' },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: !!(state.updates && state.updates.rea && state.updates.rea.checkOnStart),
+                      disabled: busy || !state.writable,
+                      onChange: function (event) { saveUpdateSetting('rea', 'checkOnStart', event.target.checked); },
+                    }),
+                    t('maintRea') + ' · ' + t('maintAuto'),
+                  ),
+                  h(
+                    'label',
+                    { className: 'realp-maint-switch' },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: !!(state.updates && state.updates.rea && state.updates.rea.autoApply),
+                      disabled: busy || !state.writable,
+                      onChange: function (event) { saveUpdateSetting('rea', 'autoApply', event.target.checked); },
+                    }),
+                    t('maintRea') + ' · ' + t('maintAutoApply'),
+                  ),
+                ),
+
+                maintLog !== '' ? h('div', { className: 'realp-maint-log' }, maintLog) : null,
+                maintBusy !== '' ? h('div', { className: 'realp-note' }, t('maintBusy')) : null,
+              ),
+        ),
 
         h('div', { className: 'realp-foot' }, t('configPath') + '：' + state.configPath),
       );

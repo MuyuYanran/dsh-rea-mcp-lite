@@ -1,11 +1,11 @@
 # dsh-rea-mcp-lite
 
-> 把 [REA](https://www.npmjs.com/package/rea-agents) 的 **207 个逆向工程 MCP 工具**压成 **4 个元工具 + 按需加载的功能族**，
+> 把 [REA](https://www.npmjs.com/package/rea-agents) 的 **207 个逆向工程 MCP 工具**压成 **5 个元工具 + 按需加载的功能族**，
 > 默认省下 **99.2%** 的工具上下文（~53k tok → **418 tok**），而 207 个工具**一个都没丢**，全部仍可调用。
 > 功能族支持**运行时热切换**（`notifications/tools/list_changed`），无需重启 DSH。
 
 A tiny zero-dependency MCP stdio proxy that turns REA's 207 tools into a progressive-disclosure
-gateway: 4 meta-tools by default (~418 tokens instead of ~53k), every tool still reachable,
+gateway: 5 meta-tools by default (~418 tokens instead of ~53k), every tool still reachable,
 with hot-swappable tool bundles and no DSH restart.
 
 ---
@@ -92,7 +92,7 @@ cp config.example.json config.json   # Windows: Copy-Item config.example.json co
 
 ```jsonc
 {
-  "activeBundles": [],        // 常驻功能族；[] = 只挂 4 个元工具
+  "activeBundles": [],        // 常驻功能族；[] = 只挂 5 个元工具
   "lite": "mild",             // off | mild | aggressive
   "child": {
     "command": "node",        // 建议写 node 的绝对路径
@@ -120,11 +120,11 @@ cp config.example.json config.json   # Windows: Copy-Item config.example.json co
         failOnStartupError: false
 ```
 
-**(4) 重启 DSH**（cordis 配置只在启动时读取）。重启后 REA 会以 4 个元工具出现。
+**(4) 重启 DSH**（cordis 配置只在启动时读取）。重启后 REA 会以 5 个元工具出现。
 
 > 不想用网关时：把 `args` 换成 `rea.mjs` + `mcp` 并删掉 `REA_LITE_CONFIG` 即可直连。
 
-## 4 个元工具
+## 5 个元工具
 
 | 工具 | 作用 |
 | --- | --- |
@@ -132,6 +132,7 @@ cp config.example.json config.json   # Windows: Copy-Item config.example.json co
 | `tool_schema` | 取某工具的**完整** inputSchema（未裁剪），用于精确构造复杂参数 |
 | `call_tool` | 调用**任意**工具（含未加载族的）：`{"tool":"analyze_function","arguments":{"procedure":"main"}}` |
 | `bundles` | 列出/切换功能族：`action = list \| activate \| deactivate \| set` |
+| `maintenance` | 网关体检与更新：查本仓库/REA 新版、找未归族的新工具并归类、刷新成本快照。默认只读，`action=classify/update-*` 才改本机 |
 
 **不需要先加载功能族就能调用工具** —— 功能族只决定"先把哪些工具的说明书摆到桌面上"。
 
@@ -221,7 +222,7 @@ node src/cli.mjs custom remove web-audit
 
 ## 三种用法
 
-**A. 默认网关模式（推荐）** — 只挂 4 个元工具（418 tok），一切靠 `call_tool` 打：
+**A. 默认网关模式（推荐）** — 只挂 5 个元工具（约 541 tok），一切靠 `call_tool` 打：
 ```bash
 node src/cli.mjs none
 ```
@@ -250,6 +251,66 @@ node src/cli.mjs status    # 当前配置
 
 运行时切换会写回 `config.json`（`persistRuntimeSwitch: true`），重启后保持。
 
+## 更新与体检
+
+三个都要问「外面/里面各是什么版本」，所以做成一个共用流水线（`src/updates.mjs` + `src/maintenance.mjs`），
+CLI、设置页、元工具 `maintenance` 走同一份实现。
+
+```bash
+node src/cli.mjs check                       # 三块一起看：本仓库 / REA 本体 / 工具覆盖
+node src/cli.mjs doctor                      # 只看工具覆盖（REA 有但族清单没收录的工具）
+node src/cli.mjs update-self [--apply]       # 本仓库快进（git merge --ff-only）
+node src/cli.mjs update-rea  [--apply]       # 升级 rea-agents（装完自动刷快照 + 归类）
+node src/cli.mjs classify [--apply] [--set tool=bundle,…]
+```
+
+`check` 的输出长这样：
+
+```
+== 本仓库 ==
+  main 落后 origin/main 2 个提交（本地领先 0），可快进
+    a18ab29 某个新提交
+== REA 本体 ==
+  已安装 6.7.0（pnpm @ D:/.../rea-agents）
+  npm 上有新版 6.8.0
+  装完新版本后运行 node src/cli.mjs snapshot，再 node src/cli.mjs classify —— 新工具要归族才能被功能族加载。
+== 工具覆盖 ==
+  来源：live；当前 212 个工具，已归族 207 个
+  未归族（REA 有、族清单没收录）：5 个
+    inspect_wifi_deauth, …
+```
+
+三条不可越过的边界：
+
+- **检查只读**。`checkSelfUpdate` 只做 `git fetch` + `rev-list`；`checkReaUpdate` 只读 npm registry 与本地 `package.json`。面板默认用快照算覆盖，不为了看一眼结论去起 REA。
+- **写动作要显式**。`update-self` 只走 `--ff-only`，且**工作区脏或本地有未推送提交时直接拒绝**（那是分叉，得人来决定 merge 还是 rebase）；`update-rea` 先备份清单与锁文件到 `_upgrade-backup-<时间戳>/`，装失败会把清单拷回并重装。
+- **默认不自动**。`config.updates.*.checkOnStart` 只记日志，`autoApply` 才会真的改本机。两个默认都是 `false`：更新会改你的安装与仓库，必须显式开。
+
+### REA 新版的新工具怎么归类
+
+族清单是静态的，所以 REA 每加工具就会出现「未归族」。`classify` 自动打分并分级：
+
+- 打分用**词元稀有度**：`dart`/`pcap`/`frida` 只出现在一个族（强信号），`inspect`/`verify`/`compare` 遍地都是（弱信号，列进停用词表）。
+- 分数够、且明显领先第二名 → `high`，`--apply` 自动写；同分或分数不够 → `medium`/`low`，只给候选。
+- `low` 不给建议 —— 新领域（比如 WiFi）宁可留给模型判断。`classify` 会打印一段题面，贴给 DSH 里的模型就能拿回 `{"工具名":"族 id"}` 的 JSON。
+- 写入的是 `config.json` 的 `bundleExtras`（`{ "capture": ["inspect_x"] }`），**不改 `bundles.mjs`**：内置清单人工维护，机器判断另存一层，删掉就回到原样。
+
+### 设置页里的「更新与体检」
+
+「设置 → REA 工具 → 更新与体检」：一张卡片显示本仓库/REA/覆盖三块结论，按钮是「更新本仓库」「升级 REA」「刷新快照」「看归类建议」「写入高置信度归类」。检查默认读快照，勾「向 REA 实时查询」才真的起一次 REA。写动作会跑完自动重新检查一遍，改动结果落在日志区。
+
+### 模型侧也能触发
+
+`maintenance` 元工具把同一套动作暴露给模型（默认 `action=report` 只读）：
+
+```
+mcp__rea__maintenance { "action": "report" }                     # 三块结论
+mcp__rea__maintenance { "action": "classify" }                   # 建议 + 给模型的题面
+mcp__rea__maintenance { "action": "classify", "apply": true }     # 写高置信度
+mcp__rea__maintenance { "action": "snapshot" }                   # 刷新快照
+mcp__rea__maintenance { "action": "update-rea", "apply": true }    # 升级（会重启子进程并重新握手）
+```
+
 ## 设置页（可选，推荐）
 
 仓库里的 `dsh-plugin/` 是一个 DSH 插件（细节见 [dsh-plugin/README.md](dsh-plugin/README.md)），装好后在 **设置 → REA 工具** 多出一页：
@@ -277,11 +338,15 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 | 键 | 默认 | 说明 |
 | --- | --- | --- |
 | `activeBundles` | `[]` | 常驻功能族 |
-| `metaTools` | `true` | 是否暴露 4 个元工具（关掉就只剩 `activeBundles`） |
+| `metaTools` | `true` | 是否暴露 5 个元工具（关掉就只剩 `activeBundles`） |
 | `lite` | `"mild"` | `off` \| `mild` \| `aggressive`，暴露时的 schema/描述裁剪力度 |
 | `shortDescription` | `true` | 只给一句话描述（完整说明仍可从 `tool_schema` 拿到） |
 | `persistRuntimeSwitch` | `true` | 运行时切换是否写回配置文件 |
 | `toolCallTimeoutMs` | `600000` | 单次工具调用超时（反编译类工具有时会跑很久） |
+| `customBundles` | `{}` | 用户自定义族：`{ id: { label?, hint?, tools: [...] } }` |
+| `bundleExtras` | `{}` | 自动归类追加到内置族的工具：`{ "capture": ["inspect_x"] }`（只追加，不替换） |
+| `updates.self` | `{ remote: "origin", checkOnStart: false }` | 本仓库更新；`autoApply: true` 才会在启动时自动快进 |
+| `updates.rea` | `{ registry: "https://registry.npmjs.org/rea-agents", checkOnStart: false }` | REA 本体更新；`autoApply: true` 才会在启动时自动升级 |
 | `child` | — | 怎么拉起真正的 REA：`command` / `args` / `env` |
 
 - `lite` 的 `mild` 去掉 `pattern`/`format`/`minLength`… 并把描述截到 80 字；`aggressive` 再砍 `examples`/`default` 并截到 50 字。被裁掉的约束 REA 服务端仍会校验，报参数错误时用 `tool_schema` 取原始 schema。
@@ -296,18 +361,20 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 ```bash
 node test/probe.mjs         # 19 项集成测试：握手 / 元工具 / 搜索 / 转发 / 热加载 / 热卸载 / 全量 / 自定义族
 node test/plugin.test.mjs   # 90 项插件自检：假 Cordis 上下文驱动面板 API + 渲染设置页
+node test/maintenance.test.mjs # 81 项：归类打分 / 追加归类 / 工具覆盖 / 版本比较 / 临时真仓库的 git 快进 / 面板新接口
+node test/panel-render.test.mjs # 26 项：用最小 React 运行时真的重渲染设置页（含「更新与体检」各分支）
 node test/reload-child.mjs  # 6 项子进程热重启：改 child.env → 重启 REA → 重新握手 → 重取工具列表 → 通知客户端
 node test/check-config.mjs  # 用真实 config.json 拉起 REA，确认全部工具可达
 node e2e-check.mjs          # 9 项外部工具验收：真实代理 → 真实 REA → 真实 objdump/rizin/tshark/WABT/SQLite/Frida/Cutter
 node src/cli.mjs snapshot   # 重新生成工具成本快照 data/tools-model.json
 ```
 
-对应的 npm 脚本：`npm run test:panel` / `test:reload` / `test:e2e` / `test:config` / `probe` / `snapshot`。
+对应的 npm 脚本：`npm run test:panel` / `test:maintenance` / `test:reload` / `test:e2e` / `test:config` / `probe` / `snapshot` / `check` / `doctor` / `classify`。
 
 这些断言都不写死工具数量与 token 总量——它们随 REA 版本漂移（6.4.0 = 170 工具 / ~49k tok，
 6.7.0 = 207 工具 / ~26.7k tok，因为新版 compact schema 裁剪更狠）。基准一律从快照文件派生。
 
-改代码前建议先读 [AGENTS.md](AGENTS.md)：那里记了这个仓库的六条硬约束、代码地图、以及已经踩过的坑。
+改代码前建议先读 [AGENTS.md](AGENTS.md)：那里记了这个仓库的八条硬约束、代码地图、以及已经踩过的坑。
 
 ## debug / formats / capture 三族的外部工具
 
@@ -322,8 +389,8 @@ node src/cli.mjs snapshot   # 重新生成工具成本快照 data/tools-model.js
 
 ## 配套的模型侧说明
 
-- `skill/SKILL.md` —— 独立的"网关模式"技能，教模型用这 4 个元工具（可复制到 `~/.agents/skills/rea-tool-gateway/`）。
-- 若已安装 REA 官方技能 `reverse-engineer-anything`，建议在其 `SKILL.md` 顶部加一段说明：工具列表只剩 4 个元工具时，照常用 `call_tool` 干活（本仓库 README 的措辞可直接借用）。
+- `skill/SKILL.md` —— 独立的"网关模式"技能，教模型用这些元工具（可复制到 `~/.agents/skills/rea-tool-gateway/`）。
+- 若已安装 REA 官方技能 `reverse-engineer-anything`，建议在其 `SKILL.md` 顶部加一段说明：工具列表只剩元工具时，照常用 `call_tool` 干活（本仓库 README 的措辞可直接借用）。
 
 ## 已知限制
 
@@ -333,6 +400,10 @@ node src/cli.mjs snapshot   # 重新生成工具成本快照 data/tools-model.js
 - DSH 的 LLM 层已有 `defer_loading` 字段（`tool.deferLoading`）。若将来 DSH 允许在 MCP 工具上开启它，原生方案会比本代理更省；目前用不上，列为后续方向。
 - 工具成本快照 `data/tools-model.json` 里的数字随 REA 版本变化，切换版本后应重跑 `node src/cli.mjs snapshot`，
   否则设置页显示的是旧版本的成本。
+- 自动归类只处理**名字/描述里的词**。REA 若引入全新领域（例如无线抓包），专属词在旧族里一个都没有，
+  它会诚实地报「low / 无建议」而不是硬猜；这时用 `classify` 打印的题面让模型判断，再由 `--set` 写入。
+- 更新检查依赖外网（git 远端 / npm registry）。离线时 `check` 会在对应块写「取远端失败」而不影响其它块；
+  面板默认用快照算覆盖，所以离线也能看到未归族清单。
 
 ## 本机部署记录（作者环境）
 

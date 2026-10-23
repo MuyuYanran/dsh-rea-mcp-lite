@@ -51,6 +51,19 @@ export const META_TOOLS = [
       required: ['tool'],
     },
   },
+  {
+    name: 'maintenance',
+    description:
+      '网关体检与更新：本仓库/REA 有无新版、族清单里有哪些当前 REA 没有的工具、把 REA 新增的未归族工具归类、刷新成本快照。默认只读；action=classify/update-* 才改本机。',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['report', 'classify', 'update-self', 'update-rea', 'snapshot'], description: '默认 report（只读）。' },
+        apply: { type: 'boolean', description: 'update-* 是否真的执行（false = 只给计划）。' },
+        manual: { type: 'object', description: 'classify 手工指定：{ 工具名: 族 id }。' },
+      },
+    },
+  },
 ];
 
 export const META_NAMES = new Set(META_TOOLS.map((t) => t.name));
@@ -142,6 +155,11 @@ export async function handleMetaTool(name, args, ctx) {
     return await ctx.callTool(toolName, toolArgs);
   }
 
+  if (name === 'maintenance') {
+    if (typeof ctx.maintenance !== 'function') return fail('这个版本不支持 maintenance（网关未注入维护能力）。');
+    return text(await ctx.maintenance(args ?? {}));
+  }
+
   return fail(`未知元工具：${name}`);
 }
 
@@ -165,19 +183,24 @@ export async function describeExposedText(ctx) {
     const flag = isActive ? '[已加载]' : '';
     const tag = b.custom ? '（自定义）' : '';
     const hint = b.hint ? `  ${b.hint}` : '';
-    return `- ${b.name.padEnd(9)} ${String(b.toolCount).padStart(3)} 个  ~${String(b.estTokens).padStart(6)} tok ${flag}  ${b.label}${tag}${hint}`;
+    // 族清单里有、当前 REA 版本没有的工具：这是「本地 REA 偏旧」的信号，直接写出来，
+    // 免得用户勾了族却发现某个工具根本调不到（REA 与功能族清单会随版本漂移）。
+    const missingNote = b.missing.length ? `  当前 REA 版本缺 ${b.missing.length} 个：${b.missing.slice(0, 4).join(', ')}${b.missing.length > 4 ? ' …' : ''}` : '';
+    return `- ${b.name.padEnd(9)} ${String(b.toolCount).padStart(3)} 个  ~${String(b.estTokens).padStart(6)} tok ${flag}  ${b.label}${tag}${hint}${missingNote}`;
   });
 
   const lines = describe();
   const unassigned = unassignedTools(names, typeof ctx.bundleTable === 'function' ? ctx.bundleTable() : undefined);
-  const activeText = active.length ? active.join(', ') : '（无，仅 4 个元工具）';
+  const activeText = active.length ? active.join(', ') : `（无，仅 ${META_TOOLS.length} 个元工具）`;
+  // 「全量加载要多少」也得现算，不能写死：这个数随 REA 版本与裁剪设置变（6.4.0 约 49k，6.7.0 约 26.7k）。
+  const allTokens = estimateTokens(tools.map((t) => projectTool(t, { lite: ctx.lite() }))) + metaTokens;
   return [
     `REA 工具共 ${names.length} 个；当前加载：${activeText}`,
-    `模型可见工具：${exposedNames.size} 个 + ${META_TOOLS.length} 个元工具，估算上下文成本 ~${totalTokens} tok（全量加载需 ~70k tok）。`,
+    `模型可见工具：${exposedNames.size} 个 + ${META_TOOLS.length} 个元工具，估算上下文成本 ~${totalTokens} tok（全量加载需 ~${allTokens} tok）。`,
     '',
     '功能族（用 action=activate/deactivate/set 开关，热更新）：',
     ...lines,
-    unassigned.length ? `\n未归族的工具（REA 升级后新增）：${unassigned.join(', ')}` : '',
+    unassigned.length ? `\n未归族的工具（REA 升级后新增，仍可直接 call_tool 调用）：${unassigned.join(', ')}\n用 maintenance action=classify 看建议并写入族` : '',
     `\n提示：任何工具都可以不加载族直接用 call_tool 调用；参数细节用 tool_schema 查询。`,
   ].filter(Boolean).join('\n');
 }

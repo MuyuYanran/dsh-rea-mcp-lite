@@ -1,7 +1,7 @@
 {
   "name": "dsh-rea-lite-panel",
   "version": "0.1.0",
-  "description": "REA 工具网关的设置页：勾选功能族、看清每个族的上下文成本、热切换，无需改配置文件或重启 DSH。",
+  "description": "REA 工具网关的设置页：勾选功能族、看清每个族的上下文成本、热切换，并能检查/应用本仓库与 REA 的更新、把新工具自动归类。",
   "license": "MIT",
   "icon": "./icon.svg",
   "type": "module",
@@ -48,6 +48,6 @@
   },
   "meta": {
     "title": "REA 工具网关",
-    "description": "让 REA 的 170 个逆向工具按需加载：勾选功能族、看清 token 成本、约 1 秒热切换。"
+    "description": "让 REA 的逆向工具按需加载：勾选功能族、看清 token 成本、约 1 秒热切换；并可检查更新、自动归类新工具。"
   }
 }

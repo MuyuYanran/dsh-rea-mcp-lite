@@ -1,11 +1,25 @@
 {
   "mode": "gateway",
   "activeBundles": [],
+  "customBundles": {},
+  "bundleExtras": {},
   "metaTools": true,
   "lite": "mild",
   "shortDescription": true,
   "persistRuntimeSwitch": true,
   "toolCallTimeoutMs": 600000,
+  "updates": {
+    "self": {
+      "remote": "origin",
+      "checkOnStart": false,
+      "autoApply": false
+    },
+    "rea": {
+      "registry": "https://registry.npmjs.org/rea-agents",
+      "checkOnStart": false,
+      "autoApply": false
+    }
+  },
   "child": {
     "command": "node",
     "args": [
