@@ -1,7 +1,7 @@
 // 工具快照：把 REA 的工具列表按「模型实际看到的成本」落盘。
 //
 // 用途：设置页（dsh-plugin/）与 CLI 不需要启动 REA 就能算出每个功能族的上下文成本，
-// 也不需要把 170 个工具的完整 schema 抄一份进仓库（快照只存 name / 字符数 / 一句话描述）。
+// 也不需要把全部工具的完整 schema 抄一份进仓库（快照只存 name / 字符数 / 一句话描述）。
 // proxy 每次预取成功后会刷新它，所以快照不会与真实工具集漂移。
 import fs from 'node:fs';
 import path from 'node:path';

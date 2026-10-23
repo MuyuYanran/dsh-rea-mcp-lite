@@ -1,4 +1,4 @@
-// 始终暴露的元工具：用极小的上下文成本，让 170 个 REA 工具全部保持可达。
+// 始终暴露的元工具：用极小的上下文成本，让 REA 的全部工具（数量随版本变化）保持可达。
 import { BUNDLES, ALL_BUNDLE, bundlesOf, describeBundles, unassignedTools } from './bundles.mjs';
 import { projectTool, estimateTokens } from './lite.mjs';
 
@@ -6,19 +6,19 @@ export const META_TOOLS = [
   {
     name: 'bundles',
     description:
-      '列出或切换 REA 功能族。REA 有 170 个逆向工具，默认不全量加载（否则占用大量上下文）；本工具显示每个功能族的工具数、上下文成本与加载状态，并可用 action=activate/deactivate/set 即时开关（热更新，无需重启）。',
+      '列出或切换 REA 功能族。REA 的逆向工具默认不全量加载（否则占用大量上下文）；本工具显示每个功能族的工具数、上下文成本与加载状态，并可用 action=activate/deactivate/set 即时开关（热更新，无需重启）。',
     inputSchema: {
       type: 'object',
       properties: {
         action: { type: 'string', enum: ['list', 'activate', 'deactivate', 'set'], description: '默认 list；activate/deactivate 为增量开关，set 为直接替换当前加载集合。' },
-        bundles: { type: 'array', items: { type: 'string' }, description: `族名数组，如 ["web","js"]；可用 all 表示全部 170 个工具。已知族：${Object.keys(BUNDLES).join(', ')}` },
+        bundles: { type: 'array', items: { type: 'string' }, description: `族名数组，如 ["web","js"]；可用 all 表示当前版本的全部工具。已知族：${Object.keys(BUNDLES).join(', ')}` },
       },
     },
   },
   {
     name: 'search_tools',
     description:
-      '在全部 170 个 REA 工具里按关键词搜索（工具名与说明都参与匹配），返回工具名、一句话用途、必填参数、所属功能族与是否已加载。任何 REA 能力都可通过 call_tool 调用，无需先加载其功能族。',
+      '在全部 REA 工具里按关键词搜索（工具名与说明都参与匹配），返回工具名、一句话用途、必填参数、所属功能族与是否已加载。任何 REA 能力都可通过 call_tool 调用，无需先加载其功能族。',
     inputSchema: {
       type: 'object',
       properties: {

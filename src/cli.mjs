@@ -129,7 +129,7 @@ else if (command === 'snapshot') await writeToolsSnapshot();
 else if (command === 'all') {
   const config = loadConfig();
   saveConfig({ ...config, activeBundles: [ALL_BUNDLE] });
-  console.log('已设为加载全部 170 个工具（上下文成本约 48k tok）。');
+  console.log(`已设为加载全部工具（成本见下方 status；当前 REA 版本的工具数以内置快照为准）。`);
 } else if (command === 'none' || command === 'gateway') {
   const config = loadConfig();
   saveConfig({ ...config, activeBundles: [] });

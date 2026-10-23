@@ -302,8 +302,12 @@ node e2e-check.mjs          # 9 项外部工具验收：真实代理 → 真实 
 node src/cli.mjs snapshot   # 重新生成工具成本快照 data/tools-model.json
 ```
 
+对应的 npm 脚本：`npm run test:panel` / `test:reload` / `test:e2e` / `test:config` / `probe` / `snapshot`。
+
 这些断言都不写死工具数量与 token 总量——它们随 REA 版本漂移（6.4.0 = 170 工具 / ~49k tok，
 6.7.0 = 207 工具 / ~26.7k tok，因为新版 compact schema 裁剪更狠）。基准一律从快照文件派生。
+
+改代码前建议先读 [AGENTS.md](AGENTS.md)：那里记了这个仓库的六条硬约束、代码地图、以及已经踩过的坑。
 
 ## debug / formats / capture 三族的外部工具
 
