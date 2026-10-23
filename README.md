@@ -1,12 +1,17 @@
 # dsh-rea-mcp-lite
 
-> 把 [REA](https://www.npmjs.com/package/rea-agents) 的 **207 个逆向工程 MCP 工具**压成 **5 个元工具 + 按需加载的功能族**，
-> 默认省下 **99.2%** 的工具上下文（~53k tok → **418 tok**），而 207 个工具**一个都没丢**，全部仍可调用。
+> 把 [REA](https://www.npmjs.com/package/rea-agents) 的逆向工程 MCP 工具全部收进 **5 个元工具 + 按需加载的功能族**：
+> 默认只摆出元工具、省下绝大部分工具上下文，其余工具**一个都没丢**，随时检索与调用。
 > 功能族支持**运行时热切换**（`notifications/tools/list_changed`），无需重启 DSH。
+> 自带**更新与体检**：查本仓库与 REA 上游更新、把 REA 新增工具自动归类、提醒本机缺哪些工具。
 
-A tiny zero-dependency MCP stdio proxy that turns REA's 207 tools into a progressive-disclosure
-gateway: 5 meta-tools by default (~418 tokens instead of ~53k), every tool still reachable,
-with hot-swappable tool bundles and no DSH restart.
+A tiny zero-dependency MCP stdio proxy that turns REA's full tool set into a progressive-disclosure
+gateway: a handful of meta-tools by default, every tool still searchable and callable, with
+hot-swappable tool bundles and no DSH restart. Ships update checks (this repo + REA upstream),
+automatic bundle classification for new tools, and coverage hints for missing ones.
+
+> 具体工具数、token 与省下的百分比都是 **REA 版本相关**的数字，写在下面的「效果」表里并标注了实测版本；
+> 换版本后以 `node src/cli.mjs snapshot` 重跑的结果为准。
 
 ---
 
@@ -16,8 +21,8 @@ with hot-swappable tool bundles and no DSH restart.
 
 | 场景 | 模型可见工具 | 约 token |
 | --- | --- | --- |
-| **默认（仅元工具）** | 4 | **418** |
-| 加载全部（经本代理裁剪后） | 211 | 26.7k |
+| **默认（仅元工具）** | 5 | **541** |
+| 加载全部（经本代理裁剪后） | 212 | 26.9k |
 | 不用本代理（直连 REA，模型可见部分） | 207 | ~53k |
 
 早期版本（REA 6.4.0，170 个工具）直连约 70k tok、经代理全量约 49k tok；
@@ -50,7 +55,7 @@ tools: options.tools.map((tool) => ({
 
 - 716k tok 的报文里 91% 是"看着吓人但不花钱"的部分；
 - 砍掉它省 **0%**，裁掉 `pattern`/`format` 之类只省几个百分点，把描述压成一句话省约 2%；
-- 真正的成本是 **工具的数量**（207 个）。
+- 真正的成本是 **工具的数量**（当前版本 207 个）。
 
 于是本项目的核心是 **按需暴露（progressive disclosure）**，而不是压缩 schema。schema 瘦身只作为附带优化（`lite` 档位）。
 
@@ -154,9 +159,12 @@ cp config.example.json config.json   # Windows: Copy-Item config.example.json co
 | `managed` | 7 | 1.0k | .NET / 托管程序集 / 托管-原生边界 |
 | `formats` | 7 | 1.0k | Go / Rust / WASM / SQLite / Electron fuses / objdump |
 | `capture` | 6 | 0.8k | PCAP / TShark / sigrok 逻辑信号 |
-| `all` | 207 | 26.7k | 全部（等价于直连 REA 的模型可见部分，但 schema 更瘦） |
+| `all` | 207 | 26.3k | 全部（等价于直连 REA 的模型可见部分，但 schema 更瘦） |
 
 > 族之间有重叠（`apple` 的工具也属 `native`，`runtime` 的部分工具同属 `js`/`web`），所以各族 token 相加 > `all`。
+
+> **这里的数字会随 REA 版本漂移**（且方向反直觉，见下节）。上面两个表按 `data/tools-model.json` 的当期快照实测，
+> 换版本后以 `node src/cli.mjs snapshot` 重跑的结果为准——别把这些值当作不变量抄进断言或其它文档。
 
 ### 版本适配（REA 6.5.0 起）
 
@@ -172,7 +180,7 @@ REA 6.5.0 起新增 `debug` / `formats` / `capture` 三族；6.7.0 共 **207 个
 
 外置工具的安装与 Windows 上的真实可用性见「debug / formats / capture 三族的外部工具」一节。
 
-**成本随版本变化，且方向反直觉**：6.4.0 是 170 工具 / 模型可见约 49k tok；6.7.0 是 207 工具 / 约 26.7k tok。
+**成本随版本变化，且方向反直觉**：6.4.0 是 170 工具 / 全量约 49k tok；6.7.0 是 207 工具 / 全量约 26.9k tok。
 工具多了三分之一而成本降了近一半，因为 6.7.0 的 compact schema profile 裁剪更狠
 （把那批最大的工具 schema 从 6–9k 字符压到 500–900 字符）。所以不要把这几个数字当常量写进断言或文档；
 一切都以 `data/tools-model.json` 为准，切版本后重跑 `node src/cli.mjs snapshot`。
@@ -372,7 +380,7 @@ node src/cli.mjs snapshot   # 重新生成工具成本快照 data/tools-model.js
 对应的 npm 脚本：`npm run test:panel` / `test:maintenance` / `test:reload` / `test:e2e` / `test:config` / `probe` / `snapshot` / `check` / `doctor` / `classify`。
 
 这些断言都不写死工具数量与 token 总量——它们随 REA 版本漂移（6.4.0 = 170 工具 / ~49k tok，
-6.7.0 = 207 工具 / ~26.7k tok，因为新版 compact schema 裁剪更狠）。基准一律从快照文件派生。
+6.7.0 = 207 工具 / ~26.9k tok，因为新版 compact schema 裁剪更狠）。基准一律从快照文件派生。
 
 改代码前建议先读 [AGENTS.md](AGENTS.md)：那里记了这个仓库的八条硬约束、代码地图、以及已经踩过的坑。
 

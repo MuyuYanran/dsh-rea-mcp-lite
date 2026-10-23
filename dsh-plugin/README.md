@@ -19,7 +19,7 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 - **归类预览**：列出每个未归族的新工具与建议归属，标出置信度（高/中/低）。高置信度可一键写入 `config.json` 的 `bundleExtras`；不确定的留给模型判断（CLI `classify` 会打印题面）。
 - **服务器状态**：已连接 / 已停用 / 启用但未连上，并在被停用时提示去「MCP 管理」启用。
 
-成本数据来自网关生成的 `data/tools-model.json`（170 个工具的字符数、一句话描述、所属族，约 30 KB，不含完整 schema）。代理每次连上 REA 都会刷新它，也可以手动 `node src/cli.mjs snapshot` 重新生成。
+成本数据来自网关生成的 `data/tools-model.json`（当前 REA 版本的每个工具的字符数、一句话描述、所属族，不含完整 schema）。代理每次连上 REA 都会刷新它，也可以手动 `node src/cli.mjs snapshot` 重新生成。
 
 ## 安装与配置
 
