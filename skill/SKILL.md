@@ -1,6 +1,6 @@
 ---
 name: rea-tool-gateway
-description: Use when REA tools appear as the mcp__rea__ meta tools (search_tools / tool_schema / call_tool / bundles) instead of 170 individual tools. Explains how to reach every REA reverse-engineering tool through the gateway, when to load a bundle, and how to switch tool sets at runtime.
+description: Use when REA tools appear as the mcp__rea__ meta tools (search_tools / tool_schema / call_tool / bundles) instead of the full set (207 tools on REA 6.7.0). Explains how to reach every REA reverse-engineering tool through the gateway, when to load a bundle, and how to switch tool sets at runtime.
 metadata:
   version: "1"
 ---
@@ -9,7 +9,7 @@ metadata:
 
 当 REA 的工具列表里只有 4 个元工具（`mcp__rea__search_tools`、`mcp__rea__tool_schema`、
 `mcp__rea__call_tool`、`mcp__rea__bundles`）时，说明 `rea-mcp-lite` 代理正在把关：
-REA 的 170 个工具**没有消失**，只是默认不摆到桌面上（省约 70k token 上下文）。
+REA 的全部工具（6.7.0 为 207 个）**没有消失**，只是默认不摆到桌面上（省约 53k token 上下文）。
 
 ## 调用任何 REA 工具
 
@@ -41,7 +41,8 @@ mcp__rea__bundles { "action": "deactivate", "bundles": ["native"] }  # 卸载
 mcp__rea__bundles { "action": "set",        "bundles": ["js","web"] }# 直接替换
 ```
 
-族：`nav`(22) `native`(44) `apple`(12) `managed`(7) `js`(13) `web`(15) `android`(36) `evidence`(16) `runtime`(11) `all`(170)。
+族（REA 6.7.0 计数）：`nav`(23) `native`(44) `apple`(12) `managed`(7) `js`(13) `web`(15)
+`android`(39) `debug`(20) `formats`(7) `capture`(6) `evidence`(16) `runtime`(11) `all`(207)。
 
 按任务挑族：Electron/JS 应用 → `js`；网页/CDP → `web`；原生二进制 → `nav` + `native`；
 .NET → `managed`；Android/APK → `android`；跨版本对比与证据包 → `evidence`。

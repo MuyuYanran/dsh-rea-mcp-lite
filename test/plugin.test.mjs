@@ -204,7 +204,13 @@ try {
   );
   check('元工具成本为正且小于 1k', state.metaTokens > 0 && state.metaTokens < 1000, `meta=${state.metaTokens}`);
   check('当前仅元工具时合计 == 元工具', state.activeTokens === state.metaTokens, `active=${state.activeTokens}`);
-  check('全量成本约 49k tok', state.totalTokens > 48000 && state.totalTokens < 50000, `total=${state.totalTokens}`);
+  // 全量成本 = 快照里全部工具的成本 + 元工具（'all' 时元工具与工具同时暴露）。
+  // 基准取内置快照自报值，避免把某个 REA 版本的数值写死。
+  check(
+    '全量成本 == 快照 totalTokens + 元工具',
+    state.totalTokens === readSnapshotRaw().totalTokens + readSnapshotRaw().metaTokens,
+    `total=${state.totalTokens} / 期望=${readSnapshotRaw().totalTokens}+${readSnapshotRaw().metaTokens}`,
+  );
   check('实测只数 mcp__rea__*', state.live.toolCount === 2, `live=${state.live.toolCount}`);
   check(
     '实测 token 与 lite.mjs 同口径',
@@ -236,7 +242,13 @@ try {
   check('全部加载时 savings 为 0', allRes.payload.state.savings === 0, String(allRes.payload.state.savings));
 
   const noneRes = await call(handler, { method: 'POST', url: '/rea-lite/active', body: { bundles: [] } });
-  check('仅元工具时节省约 99%', noneRes.payload.state.savings > 99, `${noneRes.payload.state.savings}%`);
+  // 节省比例 = 1 - 元工具/全量。全量本身随 REA 版本漂移，所以只断言公式成立、且确实省下绝大部分。
+  const expectedSavings = Math.round((1 - noneRes.payload.state.metaTokens / noneRes.payload.state.totalTokens) * 1000) / 10;
+  check(
+    '仅元工具时的节省比例符合公式',
+    noneRes.payload.state.savings === expectedSavings && expectedSavings > 95,
+    `${noneRes.payload.state.savings}% (期望 ${expectedSavings}%)`,
+  );
 
   const badRes = await call(handler, { method: 'POST', url: '/rea-lite/active', body: { bundles: ['nope'] } });
   check('未知功能族 → 400 且报出名字', badRes.status === 400 && String(badRes.payload.error).includes('nope'), badRes.payload.error);

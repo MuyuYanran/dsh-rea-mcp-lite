@@ -15,6 +15,9 @@ probe/llm-deepseek.js
 
 node_modules/
 
+# e2e-check.mjs 自动生成的验收样本（确定性内容，需要时随时重建）
+samples/
+
 # 临时/废弃文件（含 pnpm 探测污染），不提交
 .trash/
 .rea-probe/

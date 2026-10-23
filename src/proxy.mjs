@@ -68,19 +68,25 @@ class ReaProxy {
   start() {
     const { command, args, env } = this.config.child;
     log(`启动 REA：${command} ${args.join(' ')}`);
-    this.child = spawn(command, args, {
+    const child = spawn(command, args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env, ...env },
       windowsHide: true,
     });
-    this.child.stdout.on('data', makeLineReader((msg) => this.onChildMessage(msg)));
-    this.child.stderr.on('data', (chunk) => process.stderr.write(`[rea] ${chunk}`));
-    this.child.on('error', (error) => {
+    this.child = child;
+    // 热重启会换掉 this.child；旧进程的 exit/error 回调必须认自己是哪一代，
+    // 否则它退出时会把新进程的状态改写成「已退出」。
+    const isCurrent = () => this.child === child;
+    child.stdout.on('data', makeLineReader((msg) => { if (isCurrent()) this.onChildMessage(msg); }));
+    child.stderr.on('data', (chunk) => process.stderr.write(`[rea] ${chunk}`));
+    child.on('error', (error) => {
+      if (!isCurrent()) return;
       this.childError = `无法启动 REA：${error.message}`;
       log(this.childError);
       this.failInit();
     });
-    this.child.on('exit', (code, signal) => {
+    child.on('exit', (code, signal) => {
+      if (!isCurrent()) return; // 主动重启导致的旧进程退出，不算错误
       this.childError = this.childError ?? `REA 进程退出（code=${code}${signal ? `, signal=${signal}` : ''}）`;
       log(this.childError);
       for (const { reject } of this.pending.values()) reject(new Error(this.childError));
@@ -112,11 +118,23 @@ class ReaProxy {
 
     if (msg.method === 'initialize') {
       this.initId = msg.id;
+      // 存一份客户端握手，供配置热重启后重放——新起的 REA 子进程同样需要握手。
+      this.lastHandshake = { jsonrpc: '2.0', method: 'initialize', params: msg.params };
       this.initTimer = setTimeout(() => { this.childError = '等待 REA 初始化超时（30 秒）'; this.failInit(); }, 30000);
       this.writeChild(msg);
       return;
     }
-    if (msg.method === 'notifications/initialized') { this.writeChild(msg); return; }
+    if (msg.method === 'server/discover') {
+      // 2026-07-28 协议下的握手方法（现代客户端走这条，不发 initialize）。
+      this.lastHandshake = { jsonrpc: '2.0', method: 'server/discover', params: msg.params };
+      this.writeChild(msg);
+      return;
+    }
+    if (msg.method === 'notifications/initialized') {
+      this.sawInitialized = true;
+      this.writeChild(msg);
+      return;
+    }
     if (msg.method === 'tools/list') { void this.replyToolList(msg); return; }
     if (msg.method === 'tools/call') {
       const name = msg.params?.name;
@@ -161,6 +179,14 @@ class ReaProxy {
 
   // ---------- 代理 → 客户端 ----------
   onChildMessage(msg) {
+    // 配置热重启后重放 initialize 的应答：交给 rehandshakeAndPrefetch 的一次性监听，
+    // 不能落到下面那段「客户端握手」分支里（否则会用内部 id 回客户端一条假应答）。
+    if (this.onceInitReply && msg.id === 'rea-lite-reinit') {
+      const resolve = this.onceInitReply;
+      this.onceInitReply = null;
+      resolve(msg);
+      return;
+    }
     // 初始化应答：缓存能力、预取工具列表、给客户端一份改写过的 serverInfo 与使用说明
     if (this.initId !== null && msg.id === this.initId) {
       clearTimeout(this.initTimer);
@@ -232,6 +258,42 @@ class ReaProxy {
     }
   }
 
+  /**
+   * 配置热重启后重新握手：把客户端当初那份握手重放到新子进程，
+   * 再预取工具列表，最后通知客户端刷新。
+   *
+   * 一个关键事实：REA 6.5+ 在协商到 2026-07-28 协议后**不再接受 initialize**
+   * （回 `Method not found`），握手改用 `server/discover`。所以要重放的是
+   * 「客户端最近一次实际成功的那个握手方法」，而不是无条件发 initialize。
+   *
+   * 不能复用 initId——那是客户端请求的应答通道，被内部请求占用会把
+   * 客户端的 initialize 应答吞掉。这里用一次性监听截获新子进程的握手应答。
+   * 注意重放必须带上 jsonrpc 字段：REA 会静默丢弃缺它的报文（表现为握手超时）。
+   */
+  async rehandshakeAndPrefetch() {
+    try {
+      const handshake = this.lastHandshake;
+      if (handshake) {
+        const reply = await new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error('重新握手超时')), 30000);
+          this.onceInitReply = (msg) => { clearTimeout(timer); resolve(msg); };
+          this.writeChild({ ...handshake, id: 'rea-lite-reinit' });
+        });
+        this.onceInitReply = null;
+        if (reply?.error) throw new Error(`${handshake.method}: ${reply.error.message ?? '重新握手失败'}`);
+        // initialize 之后客户端还会发 notifications/initialized；server/discover 不需要。
+        if (handshake.method === 'initialize' && this.sawInitialized) {
+          this.writeChild({ jsonrpc: '2.0', method: 'notifications/initialized' });
+        }
+        log(`已与新 REA 子进程重新握手（${handshake.method}）`);
+      }
+      await this.prefetchTools();
+      this.writeOut({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+    } catch (error) {
+      log(`重启后重新握手/预取失败：${error.message}`);
+    }
+  }
+
   /** 把工具成本快照落盘，供设置页（dsh-plugin）与 CLI 免启动 REA 直接读取。 */
   refreshSnapshot() {
     if (!this.childTools) return;
@@ -298,9 +360,30 @@ class ReaProxy {
           const fresh = loadConfig();
           const changedBundles = fresh.activeBundles.join(',') !== this.activeBundles.join(',');
           const changedShape = fresh.lite !== this.config.lite || fresh.shortDescription !== this.config.shortDescription;
+          // 子进程的启动参数与 env 是 spawn 那一刻定下的：改了它们只能重启子进程才生效。
+          // 典型场景是给 REA 补 REA_TSHARK_COMMAND 之类的工具路径。
+          const changedChild =
+            fresh.child.command !== this.config.child.command ||
+            JSON.stringify(fresh.child.args) !== JSON.stringify(this.config.child.args) ||
+            JSON.stringify(fresh.child.env ?? {}) !== JSON.stringify(this.config.child.env ?? {});
           this.config = fresh;
           this.activeBundles = [...fresh.activeBundles];
           log('config.json 已变更，重新加载');
+          if (changedChild) {
+            log('子进程启动参数/env 变了，重启 REA');
+            try { this.child?.kill(); } catch { /* 已经退出 */ }
+            this.childError = null;
+            this.childTools = null;
+            this.childResultShell = null;
+            this.exposedCache = null;
+            this.initId = null;
+            this.start();
+            // 新的 REA 子进程同样需要握手。用客户端当初那份 initialize 重放，
+            // 但不占用 initId（那是留给客户端请求的应答通道），应答由下面这个一次性
+            // 监听在 prefetchTools 之前消费掉。
+            void this.rehandshakeAndPrefetch();
+            return;
+          }
           if (changedShape) this.refreshSnapshot();
           if (changedBundles) this.writeOut({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
         }, 150);

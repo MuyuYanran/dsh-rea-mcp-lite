@@ -1,35 +1,39 @@
 # dsh-rea-mcp-lite
 
-> 把 [REA](https://www.npmjs.com/package/rea-agents) 的 **170 个逆向工程 MCP 工具**压成 **4 个元工具 + 按需加载的功能族**，
-> 默认省下 **99.4%** 的工具上下文（~70k tok → **411 tok**），而 170 个工具**一个都没丢**，全部仍可调用。
+> 把 [REA](https://www.npmjs.com/package/rea-agents) 的 **207 个逆向工程 MCP 工具**压成 **4 个元工具 + 按需加载的功能族**，
+> 默认省下 **99.2%** 的工具上下文（~53k tok → **418 tok**），而 207 个工具**一个都没丢**，全部仍可调用。
 > 功能族支持**运行时热切换**（`notifications/tools/list_changed`），无需重启 DSH。
 
-A tiny zero-dependency MCP stdio proxy that turns REA's 170 tools into a progressive-disclosure
-gateway: 4 meta-tools by default (~411 tokens instead of ~70k), every tool still reachable,
+A tiny zero-dependency MCP stdio proxy that turns REA's 207 tools into a progressive-disclosure
+gateway: 4 meta-tools by default (~418 tokens instead of ~53k), every tool still reachable,
 with hot-swappable tool bundles and no DSH restart.
 
 ---
 
 ## 效果
 
+以下数字按 **REA 6.7.0** 实测（`REA_MCP_INPUT_SCHEMA_PROFILE=compact`，`lite: "mild"`）：
+
 | 场景 | 模型可见工具 | 约 token |
 | --- | --- | --- |
-| **默认（仅元工具）** | 4 | **411** |
-| 只加载 `web` 族 | 19 | 3.1k |
-| 加载全部（裁剪后） | 174 | 49.4k |
-| 不用本代理（直连 REA） | 170 | ~70.3k |
+| **默认（仅元工具）** | 4 | **418** |
+| 加载全部（经本代理裁剪后） | 211 | 26.7k |
+| 不用本代理（直连 REA，模型可见部分） | 207 | ~53k |
+
+早期版本（REA 6.4.0，170 个工具）直连约 70k tok、经代理全量约 49k tok；
+6.7.0 的工具变多而成本反而下降，是因为新版 compact schema profile 的裁剪强度提高了（见「版本适配」）。
 
 ## 为什么不是"压缩 schema"
 
-实测 REA 的 `tools/list`（`REA_MCP_INPUT_SCHEMA_PROFILE=compact`）：
+实测 REA 6.7.0 的 `tools/list` 报文（`REA_MCP_INPUT_SCHEMA_PROFILE=compact`）：
 
 | 口径 | 字符数 | 占比 |
 | --- | --- | --- |
-| REA 实际发出的报文 | 1,772,584 | 100%（≈492k tok） |
-| `outputSchema` | 1,493,900 | **84.3%** |
-| `inputSchema` | 183,725 | 10.4% |
-| `description` | 58,934 | 3.3% |
-| **真正进模型上下文的（name + description + inputSchema）** | **253,136** | **≈70.3k tok** |
+| REA 实际发出的报文全文 | 2,576,416 | 100%（≈716k tok） |
+| `outputSchema` | 2,353,893 | **91.4%** |
+| `inputSchema` | 85,705 | 3.3% |
+| `description` | 58,934 | 2.3% |
+| **真正进模型上下文的（name + description + inputSchema）** | **191,009** | **7.4%（≈53k tok）** |
 
 DSH 组装 LLM 请求时只映射三个字段 —— `@deepseek-ai/dsh-llm-deepseek/lib/index.js`：
 
@@ -44,9 +48,9 @@ tools: options.tools.map((tool) => ({
 
 `outputSchema` 只在 DSH 内部用于校验工具返回值，**完全不占上下文**。所以：
 
-- 492k 报文里 84% 是"看着吓人但不花钱"的部分；
-- 砍掉它省 **0%**，裁掉 `pattern`/`format` 之类只省 **9%**，把描述压成一句话省 31%；
-- 真正的成本是 **工具的数量**（170 个）。
+- 716k tok 的报文里 91% 是"看着吓人但不花钱"的部分；
+- 砍掉它省 **0%**，裁掉 `pattern`/`format` 之类只省几个百分点，把描述压成一句话省约 2%；
+- 真正的成本是 **工具的数量**（207 个）。
 
 于是本项目的核心是 **按需暴露（progressive disclosure）**，而不是压缩 schema。schema 瘦身只作为附带优化（`lite` 档位）。
 
@@ -124,7 +128,7 @@ cp config.example.json config.json   # Windows: Copy-Item config.example.json co
 
 | 工具 | 作用 |
 | --- | --- |
-| `search_tools` | 在全部 170 个工具里搜（名字 + 说明），返回一句话用途、必填参数、所属族、是否已加载 |
+| `search_tools` | 在全部 207 个工具里搜（名字 + 说明），返回一句话用途、必填参数、所属族、是否已加载 |
 | `tool_schema` | 取某工具的**完整** inputSchema（未裁剪），用于精确构造复杂参数 |
 | `call_tool` | 调用**任意**工具（含未加载族的）：`{"tool":"analyze_function","arguments":{"procedure":"main"}}` |
 | `bundles` | 列出/切换功能族：`action = list \| activate \| deactivate \| set` |
@@ -133,26 +137,31 @@ cp config.example.json config.json   # Windows: Copy-Item config.example.json co
 
 ## 功能族
 
-下图按 **REA 6.4.0（170 个工具）** 统计；6.5.0/6.7.0 新增的族见下方「版本适配」。
+下表按 **REA 6.7.0（207 个工具，`lite: "mild"`）** 实测；6.4.0 时的数字见下方「版本适配」。
 
 | 族 | 工具数 | 约 token | 内容 |
 | --- | --- | --- | --- |
-| `nav` | 22 | 3.2k | 会话与导航（打开目标、游标、字节、段表、字节搜索） |
-| `native` | 44 | 5.6k | 原生静态分析（伪代码、汇编、交叉引用、注解） |
-| `apple` | 12 | 1.9k | Objective-C / Swift / plist / 动态库 |
-| `managed` | 7 | 5.5k | .NET / 托管程序集 / 托管-原生边界 |
-| `js` | 13 | 12.3k | JavaScript / Electron 应用图与语义追踪 |
+| `native` | 44 | 4.7k | 原生静态分析（伪代码、汇编、交叉引用、注解） |
+| `android` | 39 | 3.8k | Android / ADB / JEB（设备、日志、APK、Flutter、HarmonyOS） |
+| `evidence` | 16 | 3.4k | 证据治理（对比、验证、未知项、重建账本） |
 | `web` | 15 | 2.7k | 网页/浏览器（CDP、网络、脚本、sourcemap） |
-| `android` | 36 | 4.3k | Android / ADB / JEB（设备、日志、APK、Flutter、HarmonyOS） |
-| `evidence` | 16 | 12.2k | 证据治理（对比、验证、未知项、重建账本） |
-| `runtime` | 11 | 6.2k | 运行时捕获与包体（进程、固件、EVM） |
-| `all` | 170 | 49.4k | 全部（等价于直连 REA，但 schema 更瘦） |
+| `js` | 13 | 2.6k | JavaScript / Electron 应用图与语义追踪 |
+| `debug` | 20 | 2.1k | Frida / GDB / Rizin / Cutter 动态调试 |
+| `runtime` | 11 | 2.1k | 运行时捕获与包体（进程、固件、EVM） |
+| `nav` | 23 | 1.9k | 会话与导航（打开目标、游标、字节、段表、字节搜索） |
+| `apple` | 12 | 1.1k | Objective-C / Swift / plist / 动态库 |
+| `managed` | 7 | 1.0k | .NET / 托管程序集 / 托管-原生边界 |
+| `formats` | 7 | 1.0k | Go / Rust / WASM / SQLite / Electron fuses / objdump |
+| `capture` | 6 | 0.8k | PCAP / TShark / sigrok 逻辑信号 |
+| `all` | 207 | 26.7k | 全部（等价于直连 REA 的模型可见部分，但 schema 更瘦） |
 
 > 族之间有重叠（`apple` 的工具也属 `native`，`runtime` 的部分工具同属 `js`/`web`），所以各族 token 相加 > `all`。
 
 ### 版本适配（REA 6.5.0 起）
 
-REA 6.7.0 有 **207 个工具**，比 6.4.0 多 37 个。这些已全部归族，另立三个新族：
+REA 6.5.0 起新增 `debug` / `formats` / `capture` 三族；6.7.0 共 **207 个工具**，比 6.4.0 多 37 个，
+已全部归族（`search_bytes` 补入 `nav`；`identify_flutter_build` / `inspect_dart_aot` /
+`project_harmony_application_graph` 补入 `android`）。
 
 | 族 | 工具数 | 内容 | 注意 |
 | --- | --- | --- | --- |
@@ -160,7 +169,12 @@ REA 6.7.0 有 **207 个工具**，比 6.4.0 多 37 个。这些已全部归族�
 | `formats` | 7 | Go / Rust / WASM / SQLite / Electron fuses / objdump | 部分依赖外部工具链 |
 | `capture` | 6 | PCAP / TShark / sigrok 逻辑信号 | 需装 TShark 4.x / sigrok-cli |
 
-`search_bytes` 归入 `nav`，`identify_flutter_build` / `inspect_dart_aot` / `project_harmony_application_graph` 归入 `android`。
+外置工具的安装与 Windows 上的真实可用性见「debug / formats / capture 三族的外部工具」一节。
+
+**成本随版本变化，且方向反直觉**：6.4.0 是 170 工具 / 模型可见约 49k tok；6.7.0 是 207 工具 / 约 26.7k tok。
+工具多了三分之一而成本降了近一半，因为 6.7.0 的 compact schema profile 裁剪更狠
+（把那批最大的工具 schema 从 6–9k 字符压到 500–900 字符）。所以不要把这几个数字当常量写进断言或文档；
+一切都以 `data/tools-model.json` 为准，切版本后重跑 `node src/cli.mjs snapshot`。
 
 **用旧版 REA 时**，这三个族显示 `0 个工具` 并标注「当前 REA 版本无此族」——那不是坏了，是版本没有这些能力。
 
@@ -176,7 +190,7 @@ REA 6.7.0 有 **207 个工具**，比 6.4.0 多 37 个。这些已全部归族�
 - 右边是本组已选，点 × 移除；也支持把左边的工具**拖进**右边。
 - 「整族并入」可把某个内置族的工具一次性全加进来或全移出去，省得一个个点。
 - 改组名时，原来勾着的这个组会跟着改名，不会悄悄失效。
-- 顶部筛选框按名字或说明过滤，170~207 个工具里找起来也快。
+- 顶部筛选框按名字或说明过滤，207 个工具里找起来也快。
 
 > 为什么以勾选为主、拖动为辅：WCAG 2.5.7（AA）要求所有拖动操作都必须有非拖动的替代路径，纯拖拽界面对键盘和触屏用户不可用。所以这里是「勾选能用，拖动更好用」。
 
@@ -207,7 +221,7 @@ node src/cli.mjs custom remove web-audit
 
 ## 三种用法
 
-**A. 默认网关模式（推荐）** — 只挂 4 个元工具（411 tok），一切靠 `call_tool` 打：
+**A. 默认网关模式（推荐）** — 只挂 4 个元工具（418 tok），一切靠 `call_tool` 打：
 ```bash
 node src/cli.mjs none
 ```
@@ -245,7 +259,7 @@ node src/cli.mjs status    # 当前配置
 - **风险与版本标记**：`debug`/`capture`/`formats` 标「需目标环境」；当前 REA 版本没有的族标「当前 REA 版本无此族」（而不是让你以为勾了没反应）。
 - **会话内实测**：DSH 工具注册表里真实存在的 `mcp__rea__*` 数量与字符数 —— 保存后约 1 秒跟随变化，用来确认热切换真的生效。
 - 状态灯显示 rea 服务器是 已连接 / 已在 MCP 管理里停用 / 启用但未连上；被停用时额外给出"去 MCP 管理启用"的指引。
-- 「查工具属于哪个族」搜索框：在 170 个工具里按名字或说明搜。
+- 「查工具属于哪个族」搜索框：在 207 个工具里按名字或说明搜。
 
 ```bash
 # 装进某个 profile（这里以 desktop 为例；web 同理）—— 依赖与 dsh.profile.bundles 都会自动登记
@@ -256,7 +270,7 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 
 - 面板只管「加载哪些族」，不管 MCP 服务器本身的启停（那是「MCP 管理」的事）。当前 profile 里 `rea` 被停用时，面板会明确提示。
 - 插件默认从「自己的上一级目录」找网关；网关装在别处时，设环境变量 `REA_LITE_ROOT` 指向网关目录即可。
-- 面板读的是 `data/tools-model.json`（工具成本快照：170 个工具的字符数 + 一句话描述 + 所属族），**不含完整 schema**，30 KB 上下。代理每次连上 REA 都会刷新它；也可以手动 `npm run snapshot` 重新生成。
+- 面板读的是 `data/tools-model.json`（工具成本快照：全部工具的字符数 + 一句话描述 + 所属族），**不含完整 schema**，当前约 48 KB。代理每次连上 REA 都会刷新它；也可以手动 `npm run snapshot` 重新生成。
 
 ## 配置项
 
@@ -272,15 +286,35 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 
 - `lite` 的 `mild` 去掉 `pattern`/`format`/`minLength`… 并把描述截到 80 字；`aggressive` 再砍 `examples`/`default` 并截到 50 字。被裁掉的约束 REA 服务端仍会校验，报参数错误时用 `tool_schema` 取原始 schema。
 - 环境变量：`REA_LITE_CONFIG` 指定配置文件位置，`REA_LITE_LAUNCHER` 覆盖 REA 启动器路径。
+- `child.env` 会合并进 REA 子进程的环境，是给 REA 指定外部工具的入口（`REA_TSHARK_COMMAND` 等）。
+  **改动 `child`（command/args/env）会触发子进程热重启**：代理杀掉旧 REA、用新配置重新 spawn、
+  重放握手、重取工具列表，再向客户端发 `notifications/tools/list_changed`——
+  所以补工具路径不必重启 DSH。（`activeBundles` / `lite` 这类则照旧走轻量热更新。）
 
 ## 自检
 
 ```bash
-node test/probe.mjs         # 16 项集成测试：握手 / 元工具 / 搜索 / 转发 / 热加载 / 热卸载 / 全量
-node test/plugin.test.mjs   # 41 项插件自检：假 Cordis 上下文驱动面板 API + 渲染设置页
-node test/check-config.mjs  # 用真实 config.json 拉起 REA，确认 170 工具可达
+node test/probe.mjs         # 19 项集成测试：握手 / 元工具 / 搜索 / 转发 / 热加载 / 热卸载 / 全量 / 自定义族
+node test/plugin.test.mjs   # 90 项插件自检：假 Cordis 上下文驱动面板 API + 渲染设置页
+node test/reload-child.mjs  # 6 项子进程热重启：改 child.env → 重启 REA → 重新握手 → 重取工具列表 → 通知客户端
+node test/check-config.mjs  # 用真实 config.json 拉起 REA，确认全部工具可达
+node e2e-check.mjs          # 9 项外部工具验收：真实代理 → 真实 REA → 真实 objdump/rizin/tshark/WABT/SQLite/Frida/Cutter
 node src/cli.mjs snapshot   # 重新生成工具成本快照 data/tools-model.json
 ```
+
+这些断言都不写死工具数量与 token 总量——它们随 REA 版本漂移（6.4.0 = 170 工具 / ~49k tok，
+6.7.0 = 207 工具 / ~26.7k tok，因为新版 compact schema 裁剪更狠）。基准一律从快照文件派生。
+
+## debug / formats / capture 三族的外部工具
+
+这三族调用原生工具（objdump、rizin、GDB、tshark、WABT、sigrok-cli、Cutter），
+而 **REA 明确不安装它们**，只在运行时按 `PATH` 或 `REA_*_COMMAND` 找。因此需要在操作系统里单独装，
+并把绝对路径写进 `child.env`（见 `config.example.json`）。
+
+本机的安装、选型理由、Windows 上的真实可用性（哪些通路被 REA 源码硬判平台而拒绝）、
+以及遇到的上游坑（Cutter 2.5.0 Windows 无法加载 Python 插件、缺 `libffi-8.dll` 等），
+全部记录在 `_Tools/README-rea-target-env.md`，配套入口脚本 `_Tools/rea-target-env.sh`。
+
 
 ## 配套的模型侧说明
 
@@ -289,10 +323,12 @@ node src/cli.mjs snapshot   # 重新生成工具成本快照 data/tools-model.js
 
 ## 已知限制
 
-- 首次握手会向 REA 拉一次 170 工具全表（约 1.7MB，实测 ~4.5s 完成握手+列表），之后走缓存。
+- 首次握手会向 REA 拉一次全量工具表（6.7.0 为 207 个 / 约 2.6MB，实测 ~4.5s 完成握手+列表），之后走缓存。
 - 被裁剪的 schema 关键字让**调用前**的参数预校验变松，错误会晚一步由 REA 抛出（表现为工具返回结构化错误）。
 - 仅代理 stdio 类 MCP；`mode: "direct"` 是预留字段，未实现绕过网关的分支。
 - DSH 的 LLM 层已有 `defer_loading` 字段（`tool.deferLoading`）。若将来 DSH 允许在 MCP 工具上开启它，原生方案会比本代理更省；目前用不上，列为后续方向。
+- 工具成本快照 `data/tools-model.json` 里的数字随 REA 版本变化，切换版本后应重跑 `node src/cli.mjs snapshot`，
+  否则设置页显示的是旧版本的成本。
 
 ## 本机部署记录（作者环境）
 

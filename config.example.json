@@ -14,7 +14,15 @@
     ],
     "env": {
       "REA_MCP_INPUT_SCHEMA_PROFILE": "compact",
-      "JAVA_HOME": "C:\\path\\to\\jdk"
+      "JAVA_HOME": "C:\\path\\to\\jdk",
+
+      "REA_OBJDUMP_COMMAND": "C:\\path\\to\\_Tools\\w64devkit\\bin\\objdump.exe",
+      "REA_RIZIN_COMMAND": "C:\\path\\to\\_Tools\\rizin\\bin\\rizin.exe",
+      "REA_GDB_COMMAND": "C:\\path\\to\\_Tools\\w64devkit\\bin\\gdb.exe",
+      "REA_WABT_BIN_DIRECTORY": "C:\\path\\to\\_Tools\\wabt\\bin",
+      "REA_TSHARK_COMMAND": "C:\\path\\to\\_Tools\\wireshark\\tshark.exe",
+      "REA_CAPINFOS_COMMAND": "C:\\path\\to\\_Tools\\wireshark\\capinfos.exe",
+      "REA_SIGROK_COMMAND": "C:\\path\\to\\_Tools\\sigrok-cli\\sigrok-cli.exe"
     }
   }
 }

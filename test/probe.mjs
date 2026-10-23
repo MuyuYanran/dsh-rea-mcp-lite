@@ -141,7 +141,15 @@ try {
   const list4 = await client.request('tools/list');
   const allTokens = estimateTokens(list4.result.tools);
   const allNames = (list4.result?.tools ?? []).map((t) => t.name);
-  check('all 族暴露全部 170 个工具', allNames.length === 174, `${allNames.length} 个（170 + 4 元工具）`);
+  // 工具总数随 REA 版本变化（6.4.0=170，6.7.0=207），所以不写死：
+  // all 族应当把「元工具之外的全部工具」一个不漏地暴露出来。
+  const META_NAMES = ['bundles', 'call_tool', 'search_tools', 'tool_schema'];
+  const nonMeta = allNames.filter((n) => !META_NAMES.includes(n));
+  check(
+    'all 族暴露全部工具 + 元工具',
+    allNames.length === nonMeta.length + META_NAMES.length && META_NAMES.every((n) => allNames.includes(n)),
+    `${allNames.length} 个（${nonMeta.length} 工具 + ${META_NAMES.length} 元工具）`,
+  );
   console.log(`  全量加载（裁剪后）上下文成本：~${allTokens} tok`);
   await client.request('tools/call', { name: 'bundles', arguments: { action: 'set', bundles: [] } });
 
