@@ -1,5 +1,7 @@
 # dsh-rea-mcp-lite
 
+**中文** | [English](README.en.md)
+
 > 把 [REA](https://www.npmjs.com/package/rea-agents) 的逆向工程 MCP 工具全部收进 **5 个元工具 + 按需加载的功能族**：
 > 默认只摆出元工具、省下绝大部分工具上下文，其余工具**一个都没丢**，随时检索与调用。
 > 功能族支持**运行时热切换**（`notifications/tools/list_changed`），无需重启 DSH。
@@ -235,7 +237,7 @@ node src/cli.mjs custom remove web-audit
 node src/cli.mjs none
 ```
 
-**B. 常用族常驻** — 例如天天做 Electron 逆向，让 `nav,js` 常驻（16.5k tok），其余按需：
+**B. 常用族常驻** — 例如天天做 Electron 逆向，让 `nav,js` 常驻（36 个工具，约 4.4k tok；含元工具约 5.0k），其余按需：
 ```bash
 node src/cli.mjs use nav js
 ```
@@ -339,7 +341,7 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 
 - 面板只管「加载哪些族」，不管 MCP 服务器本身的启停（那是「MCP 管理」的事）。当前 profile 里 `rea` 被停用时，面板会明确提示。
 - 插件默认从「自己的上一级目录」找网关；网关装在别处时，设环境变量 `REA_LITE_ROOT` 指向网关目录即可。
-- 面板读的是 `data/tools-model.json`（工具成本快照：全部工具的字符数 + 一句话描述 + 所属族），**不含完整 schema**，当前约 48 KB。代理每次连上 REA 都会刷新它；也可以手动 `npm run snapshot` 重新生成。
+- 面板读的是 `data/tools-model.json`（工具成本快照：全部工具的字符数 + 一句话描述 + 所属族），**不含完整 schema**，当前约 37 KB。代理每次连上 REA 都会刷新它；也可以手动 `npm run snapshot` 重新生成。
 
 ## 配置项
 
