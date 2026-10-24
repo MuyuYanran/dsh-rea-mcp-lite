@@ -24,8 +24,15 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 ## 安装与配置
 
 ```bash
-dsh plugin --profile <profile> add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
+# 从 npm 或插件市场（推荐日常使用）
+dsh plugin --profile desktop add dsh-rea-lite-panel
+# 从源码（开发时用，改完即生效，不必发包）
+dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 ```
+
+发到 npm 的包里自带一份网关（`gateway/`：`src/` + 工具快照 + 配置模板），由 `scripts/pack-gateway.mjs`
+在发包时从仓库根复制生成（不进版本库），所以装进 `node_modules` 后没有「仓库根的 `src/`」也能跑；
+在仓库里开发时用的仍是仓库根的 `src/`。
 
 `dsh plugin add` 会同时把包写进 profile 的 `dependencies` 与 `dsh.profile.bundles`；装完重启一次 DSH，设置页就会出现（侧边栏顺序 36）。
 
@@ -33,7 +40,7 @@ dsh plugin --profile <profile> add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 
 | 键 | 说明 |
 | --- | --- |
-| `root` | 网关仓库目录。默认按「本包目录的上一级」找（仓库布局 `dsh-plugin/` 与 `src/` 同级）。 |
+| `root` | 网关仓库目录。默认按「插件行 `root` → `REA_LITE_ROOT` → 仓库布局（本包上一级）→ 包内 `gateway/`」依次找。 |
 | `patchPath` | profile patch 路径（字符串或数组），用于判断 rea 是否被停用。默认自动找 `$DSH_HOME/cordis.patch.yml` 与 profile 的 `cordis.patch.yml`；DSH Desktop 把 profile 目录放在别处时才需要显式指定。 |
 
 「更新与体检」的写动作（升级 REA / 更新仓库 / 写归类）走 `POST /rea-lite/maintenance`（`action` = `update-self` / `update-rea` / `refresh-snapshot` / `classify` / `refresh-all`）与 `POST /rea-lite/classify`；动作名白名单校验，未知动作报 400 并列出可用值。更新开关存在 `config.json` 的 `updates`，默认全关。

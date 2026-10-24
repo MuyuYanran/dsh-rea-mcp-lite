@@ -401,11 +401,45 @@ restart — the panel writes `config.json`, the proxy watches it and hot-swaps i
 
 - The panel only controls **which bundles load**; it does not start or stop the MCP server itself
   (that is MCP management's job). When `rea` is disabled in the current profile, the panel says so.
-- The plugin looks for the gateway in "its own parent directory" by default; when the gateway lives
-  elsewhere, set `REA_LITE_ROOT` to the gateway directory.
+- The plugin looks for the gateway in this order: the plugin row's `root` → `REA_LITE_ROOT` → the
+  repository layout (this package's parent) → the copy shipped inside the package (`gateway/`).
+  When the gateway lives elsewhere, set `REA_LITE_ROOT` to the gateway directory.
 - The panel reads `data/tools-model.json` (the cost snapshot: character count per tool + one-line
   description + owning bundle), **without full schemas**, currently about 37 KB. The proxy refreshes
   it every time it connects to REA; you can also regenerate it manually with `npm run snapshot`.
+
+### Installing from npm / the plugin market (no clone)
+
+```bash
+npm i -g rea-agents                                  # the REA server the gateway talks to
+dsh plugin --profile desktop add dsh-rea-lite-panel   # the panel, plus a gateway copy in the package
+```
+
+The published package **ships its own copy of the gateway** (`gateway/`: `src/`, the tool snapshot and
+the config template), so it runs inside `node_modules` where no sibling `src/` exists. In a checkout the
+repository's own `src/` still wins; the copy is only the fallback.
+
+The panel does not register the MCP server, so add the row to your profile's `cordis.patch.yml` exactly
+as in the source install, with `args` pointing at the copy inside the package:
+
+```yaml
+- insert:
+    - id: rea-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: rea
+        transport: stdio
+        command: node
+        args:
+          - <profile>/node_modules/dsh-rea-lite-panel/gateway/src/proxy.mjs
+        env:
+          REA_LITE_CONFIG: <stable path>/rea-lite/config.json
+        failOnStartupError: false
+```
+
+Keep `REA_LITE_CONFIG` outside `node_modules` (e.g. `%USERPROFILE%\.dsh\rea-lite\config.json`): a plugin
+update replaces the package directory wholesale, and a config inside it goes with it. Set it as a
+machine environment variable too, so the settings page and the gateway read and write the same file.
 
 ## Configuration keys
 

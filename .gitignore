@@ -21,3 +21,10 @@ samples/
 # 临时/废弃文件（含 pnpm 探测污染），不提交
 .trash/
 .rea-probe/
+
+# npm 发包时由 dsh-plugin/scripts/pack-gateway.mjs 生成：网关副本 + 许可证副本。
+# 唯一事实来源是仓库根的 src/ 与 LICENSE，这两份每次 pack 重新生成，不进版本库。
+dsh-plugin/gateway/
+dsh-plugin/LICENSE
+# npm pack 的产物（发包时生成，不入库）
+dsh-plugin/*.tgz

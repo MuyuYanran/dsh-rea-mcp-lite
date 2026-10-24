@@ -3,9 +3,25 @@
   "version": "0.1.0",
   "description": "REA 工具网关的设置页：勾选功能族、看清每个族的上下文成本、热切换，并能检查/应用本仓库与 REA 的更新、把新工具自动归类。",
   "license": "MIT",
+  "author": "MuyuYanran",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MuyuYanran/dsh-rea-mcp-lite.git",
+    "directory": "dsh-plugin"
+  },
+  "homepage": "https://github.com/MuyuYanran/dsh-rea-mcp-lite#readme",
+  "bugs": {
+    "url": "https://github.com/MuyuYanran/dsh-rea-mcp-lite/issues"
+  },
   "icon": "./icon.svg",
   "type": "module",
   "main": "lib/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "exports": {
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
@@ -15,11 +31,16 @@
   },
   "files": [
     "lib",
+    "gateway",
     "locale/*.json",
     "icon.svg",
     "cordis.patch.yml",
+    "LICENSE",
     "README.md"
   ],
+  "scripts": {
+    "prepack": "node scripts/pack-gateway.mjs"
+  },
   "keywords": [
     "deepseek",
     "harness",
@@ -27,7 +48,9 @@
     "dsh-plugin",
     "mcp",
     "rea",
-    "reverse-engineering"
+    "rea-mcp-lite",
+    "reverse-engineering",
+    "progressive-disclosure"
   ],
   "peerDependencies": {
     "@deepseek-ai/dsh": ">=0.1.6-alpha.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0"

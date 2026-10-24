@@ -340,8 +340,39 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 装好后重启一次 DSH 让插件加载；之后改勾选**不需要**重启 —— 面板写 `config.json`，代理监听文件后热切换，约 1 秒生效。
 
 - 面板只管「加载哪些族」，不管 MCP 服务器本身的启停（那是「MCP 管理」的事）。当前 profile 里 `rea` 被停用时，面板会明确提示。
-- 插件默认从「自己的上一级目录」找网关；网关装在别处时，设环境变量 `REA_LITE_ROOT` 指向网关目录即可。
+- 插件按「插件行 `root` → `REA_LITE_ROOT` → 仓库布局（本包上一级）→ 包内 `gateway/`」依次找网关；网关装在别处时，设环境变量 `REA_LITE_ROOT` 指向网关目录即可。
 - 面板读的是 `data/tools-model.json`（工具成本快照：全部工具的字符数 + 一句话描述 + 所属族），**不含完整 schema**，当前约 37 KB。代理每次连上 REA 都会刷新它；也可以手动 `npm run snapshot` 重新生成。
+
+### 从 npm / 插件市场安装（本机不用克隆仓库）
+
+```bash
+npm i -g rea-agents                                 # 网关要连的 REA 本体
+dsh plugin --profile desktop add dsh-rea-lite-panel  # 面板 + 包内自带的网关副本
+```
+
+发到 npm 的包里**自带一份网关**（`gateway/`：`src/` + 工具快照 + 配置模板），装进 `node_modules`
+以后没有「仓库根的 `src/`」也能跑；在仓库里开发时仍以仓库根的 `src/` 为准，副本只是兜底。
+
+面板不负责注册 MCP 服务器，所以还要在 profile 的 `cordis.patch.yml` 里加一行（与源码安装同一份写法，
+`args` 指向包内的副本即可）：
+
+```yaml
+- insert:
+    - id: rea-mcp
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: rea
+        transport: stdio
+        command: node
+        args:
+          - <profile>/node_modules/dsh-rea-lite-panel/gateway/src/proxy.mjs
+        env:
+          REA_LITE_CONFIG: <固定路径>/rea-lite/config.json
+        failOnStartupError: false
+```
+
+`REA_LITE_CONFIG` 别放进 `node_modules`（例如用 `%USERPROFILE%\.dsh\rea-lite\config.json`）：
+插件升级会整目录替换，配置写在包内会跟着一起被换掉。把它同时设成本机环境变量，面板与代理才会读写同一份配置。
 
 ## 配置项
 

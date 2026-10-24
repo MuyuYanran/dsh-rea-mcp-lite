@@ -22,7 +22,7 @@ DSH ──stdio──> src/proxy.mjs ──stdio──> rea.mjs mcp（子进程�
 
 ---
 
-## 二、动手前必须知道的八条
+## 二、动手前必须知道的九条
 
 ### 1. 不要把 REA 的工具数量或 token 总量写进代码或断言
 
@@ -106,6 +106,22 @@ DSH 内置客户端会自动协商到这个版本。代理必须满足（否则�
 
 `config.mjs` 导出的 `CONFIG_PATH` 是**模块求值那一刻**的路径；之后改 `REA_LITE_CONFIG` 它不会跟着变。第一版 `saveConfig` 用了常量，自检脚本于是把真实 `config.json` 写了 `bundleExtras`。现在读写都走 `configPath()`（每次读环境变量）。在同进程里换配置目录时，别再引用常量。
 
+### 9. 发 npm 与上架市场：包内的网关副本是生成物，别当源码改
+
+`dsh-plugin/` 就是发到 npm 的那个包（`dsh-rea-lite-panel`）。npm 只能打包自己目录以内的文件，
+装进 `node_modules` 后没有「仓库根的 `src/`」，所以 `scripts/pack-gateway.mjs` 在 `prepack` 时把
+`../src`、`../data/tools-model.json`、`../config.example.json`、`../LICENSE` 复制成
+`dsh-plugin/gateway/` 与 `dsh-plugin/LICENSE`（两者都在 `.gitignore`）。
+
+- **改网关只改仓库根的 `src/`**，副本每次 pack 重新生成。改副本等于下次发包被覆盖。
+- 面板找网关的顺序在 `lib/index.js` 的 `gatewayCandidates`：插件行 `root` → `REA_LITE_ROOT` →
+  `REA_LITE_CONFIG` 所在目录 → 仓库布局 → 包内副本。**副本必须排最后**，否则本地开发会读到旧代码。
+- 副本脚本的日志一律走 stderr：`npm pack --json` / `npm publish` 读的是 stdout，往 stdout 打印会把 JSON 弄坏。
+- 上架 dsh-market **不是**往 `dshmarket` 仓库提 PR。条目在 `awesome-dsh-plugin/awesome-dsh-plugin` 的
+  `data/plugins/<owner>__<repo>[--<子目录>].yml`，一个插件一个文件，两个 README 由脚本生成（别手改）。
+  子包条目写成 `url: https://github.com/<owner>/<repo>/tree/main/dsh-plugin` + `name: <owner>/<repo>#dsh-plugin`
+  + 文件名 `<owner>__<repo>--dsh-plugin.yml`。CI 会真的去读那个子目录的 `dsh.bundle`，并核对描述里的每个声明。
+
 ---
 
 ## 三、代码地图
@@ -123,7 +139,7 @@ DSH 内置客户端会自动协商到这个版本。代理必须满足（否则�
 | `src/maintenance.mjs` | 把体检/更新/归类/快照串成流水线，CLI 与面板与元工具共用 | 写动作只在这里实现一份，别在入口处复制判断 |
 | `src/probe-client.mjs` | 一次性 REA 会话取 `tools/list`（兼容现代/旧握手） | 现代协议要带 `_meta`；两代握手都要能连 |
 | `src/cli.mjs` | 命令行：`status` / `list` / `use` / `custom` / `snapshot` / `classify` / `check` / `doctor` / `update-self` / `update-rea` | |
-| `dsh-plugin/` | DSH 设置页（宿主 + 客户端两半） | 客户端的幂等守卫用 `Symbol.for`，不能用模块级 `Symbol()`（HMR 会重复求值） |
+| `dsh-plugin/` | DSH 设置页（宿主 + 客户端两半），也是发布到 npm 的包 | 客户端的幂等守卫用 `Symbol.for`，不能用模块级 `Symbol()`（HMR 会重复求值）；`gateway/` 与 `LICENSE` 是 prepack 生成物，别手改（见第 9 条） |
 | `test/` | 见下节 | |
 | `probe/` | 推导文档里那些数字的一次性分析脚本 | 大体积产物已 gitignore |
 

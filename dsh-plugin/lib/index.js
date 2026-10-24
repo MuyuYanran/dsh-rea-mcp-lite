@@ -21,6 +21,12 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PACKAGE_ROOT = path.resolve(HERE, '..');
 /** 仓库布局：dsh-plugin/ 与 src/ 同级，所以网关根目录是包的上一级。 */
 const REPO_ROOT = path.resolve(PACKAGE_ROOT, '..');
+/**
+ * npm 包自带的网关副本（`scripts/pack-gateway.mjs` 在 prepack 时生成）。
+ * 装进 node_modules 以后就没有「仓库根的兄弟目录」了，只有这份副本能兜住；
+ * 它是生成物，源码永远以仓库根的 src/ 为准。
+ */
+const BUNDLED_GATEWAY = path.join(PACKAGE_ROOT, 'gateway');
 const CHARS_PER_TOKEN = 3.6;
 const MCP_CLIENT_PACKAGE = '@deepseek-ai/dsh-mcp-client';
 /** MCP 桥给工具起的名字是 mcp__<serverName>__<工具名>。 */
@@ -43,7 +49,8 @@ const RISKY_BUNDLES = new Set(['debug', 'capture', 'formats']);
 // ── 网关定位与模块加载 ───────────────────────────────────────────────────────
 
 /**
- * 候选网关目录，按优先级排列：插件行配置 → 环境变量 → 本包的上两级（仓库布局）。
+ * 候选网关目录，按优先级排列：插件行配置 → 环境变量 → 本包的上两级（仓库布局）
+ * → 本包自带的副本（npm 安装）。
  * @param {string|undefined} configured 插件行 config.root
  */
 export function gatewayCandidates(configured) {
@@ -52,6 +59,8 @@ export function gatewayCandidates(configured) {
   if (process.env.REA_LITE_ROOT) list.push(process.env.REA_LITE_ROOT);
   if (process.env.REA_LITE_CONFIG) list.push(path.dirname(process.env.REA_LITE_CONFIG));
   list.push(REPO_ROOT);
+  // 副本排最后：本地开发时仓库根的 src/ 才是最新代码，副本只是 npm 安装的兜底。
+  list.push(BUNDLED_GATEWAY);
   return [...new Set(list.map((entry) => path.resolve(entry)))];
 }
 
