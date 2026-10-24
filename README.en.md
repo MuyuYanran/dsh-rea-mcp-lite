@@ -413,6 +413,8 @@ restart — the panel writes `config.json`, the proxy watches it and hot-swaps i
 ```bash
 npm i -g rea-agents                                  # the REA server the gateway talks to
 dsh plugin --profile desktop add dsh-rea-lite-panel   # the panel, plus a gateway copy in the package
+# not taking the npm route (or you want the prebuilt package): the Release tarball
+dsh plugin --profile desktop add "https://github.com/MuyuYanran/dsh-rea-mcp-lite/releases/latest/download/dsh-rea-lite-panel.tgz"
 ```
 
 The published package **ships its own copy of the gateway** (`gateway/`: `src/`, the tool snapshot and

@@ -348,6 +348,8 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 ```bash
 npm i -g rea-agents                                 # 网关要连的 REA 本体
 dsh plugin --profile desktop add dsh-rea-lite-panel  # 面板 + 包内自带的网关副本
+# 还没从 npm 装（或想装预构建包）：直接装 Release 里的 tarball
+dsh plugin --profile desktop add "https://github.com/MuyuYanran/dsh-rea-mcp-lite/releases/latest/download/dsh-rea-lite-panel.tgz"
 ```
 
 发到 npm 的包里**自带一份网关**（`gateway/`：`src/` + 工具快照 + 配置模板），装进 `node_modules`

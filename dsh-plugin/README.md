@@ -26,6 +26,8 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 ```bash
 # 从 npm 或插件市场（推荐日常使用）
 dsh plugin --profile desktop add dsh-rea-lite-panel
+# 预构建 tarball（等同上面那份包，只是不经 npm）
+dsh plugin --profile desktop add "https://github.com/MuyuYanran/dsh-rea-mcp-lite/releases/latest/download/dsh-rea-lite-panel.tgz"
 # 从源码（开发时用，改完即生效，不必发包）
 dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 ```
