@@ -16,6 +16,7 @@ import { probeTools } from './probe-client.mjs';
 import { classifyTools, buildClassifierPrompt } from './classify.mjs';
 import { collectReport, pullSelfUpdate, pullReaUpdate, refreshAfterUpgrade, applyClassify, describeSelf, describeRea, describeUpdate, runStartupMaintenance } from './maintenance.mjs';
 import { META_TOOLS, META_NAMES, handleMetaTool, describeExposedText } from './meta-tools.mjs';
+import { normalizePresetName, capturePreset, listPresets, applyPreset, removePreset } from './presets.mjs';
 import { tryWriteSnapshot, SNAPSHOT_PATH } from './snapshot.mjs';
 
 function log(...args) { process.stderr.write(`[rea-mcp-lite] ${args.join(' ')}\n`); }
@@ -62,9 +63,70 @@ class ReaProxy {
       lite: () => this.config.lite,
       bundleTable: () => this.bundleTable(),
       describeExposed: () => describeExposedText(this.metaCtx),
+      // 命名预设：模型自己也能把「当前这套加载集合」存下来、之后一键切回来。
+      presets: () => listPresets(this.config),
+      savePreset: (args) => this.presetSave(args),
+      loadPreset: (name) => this.presetLoad(name),
+      removePreset: (name) => this.presetRemove(name),
       // 体检/更新/归类：模型侧也能直接触发，不必切到终端。只读动作默认，写动作必须显式要求。
       maintenance: (args) => this.runMaintenance(args),
     };
+  }
+
+  // ---------- 命名预设 ----------
+  //
+  // 与 CLI、设置页共用 presets.mjs 的纯函数：保存/读取的判断只有一份。
+  // 读取预设可能同时改「勾选」与「裁剪档」（lite / shortDescription / metaTools），
+  // 后者会改变每个工具定义的长度，所以这种情况既要刷新快照（面板上的成本口径），
+  // 也要发 tools/list_changed —— 只改勾选而不发通知的话，模型手里的工具列表是旧的。
+
+  /** 保存当前（或显式给定）的加载集合为命名预设。 */
+  presetSave(args = {}) {
+    const { name, preset, replaced } = capturePreset(this.config, {
+      name: args?.name,
+      label: args?.label,
+      note: args?.note,
+      bundles: Array.isArray(args?.bundles) ? args.bundles : this.activeBundles,
+    });
+    saveConfig({ ...this.config, presets: { ...(this.config.presets ?? {}), [name]: preset } });
+    this.config = loadConfig();
+    log(`预设 ${replaced ? '已覆盖' : '已保存'}：${name} → [${preset.activeBundles.join(', ') || '仅元工具'}]`);
+    return { name, preset, replaced };
+  }
+
+  /** 读取预设：写回配置、热切换工具列表；引用的族不存在时跳过并如实报出。 */
+  presetLoad(input) {
+    const name = normalizePresetName(input);
+    const preset = (this.config.presets ?? {})[name];
+    if (preset === undefined) {
+      throw new Error(`没有预设：${name}。可用：${Object.keys(this.config.presets ?? {}).join(', ') || '（无）'}`);
+    }
+    const shapeOf = (config) => `${config.lite}|${config.shortDescription}|${config.metaTools}`;
+    const before = { bundles: this.activeBundles.join(','), shape: shapeOf(this.config) };
+    const result = applyPreset(this.config, preset, {
+      defs: this.bundleTable(),
+      knownTools: (this.childTools ?? []).map((tool) => tool.name),
+      allBundle: ALL_BUNDLE,
+    });
+    saveConfig(result.config);
+    this.config = loadConfig();
+    this.activeBundles = [...this.config.activeBundles];
+    const shapeChanged = shapeOf(this.config) !== before.shape;
+    if (shapeChanged) this.refreshSnapshot();
+    if (shapeChanged || this.activeBundles.join(',') !== before.bundles) {
+      log(`读取预设 ${name}：功能族 ${before.bundles || '(无)'} → ${this.activeBundles.join(',') || '(无)'}`);
+      this.writeOut({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+    }
+    return { ...result, shapeChanged };
+  }
+
+  /** 删除命名预设（不动当前勾选）。 */
+  presetRemove(input) {
+    const result = removePreset(this.config, input);
+    saveConfig(result.config);
+    this.config = loadConfig();
+    log(`预设已删除：${result.removed}`);
+    return result;
   }
 
   // ---------- 维护（元工具 maintenance） ----------

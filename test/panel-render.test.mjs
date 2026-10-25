@@ -43,6 +43,14 @@ function textOf(node, out = []) {
   return out;
 }
 
+/** 按属性找元素（placeholder 之类不在文本节点里，textOf 看不到）。 */
+function hasProp(node, key, needle) {
+  if (node === null || node === undefined || typeof node === 'string' || typeof node === 'number' || node === false) return false;
+  if (Array.isArray(node)) return node.some((child) => hasProp(child, key, needle));
+  if (typeof node.props?.[key] === 'string' && node.props[key].includes(needle)) return true;
+  return (node.children ?? []).some((child) => hasProp(child, key, needle));
+}
+
 /**
  * 最小 React 运行时：hooks 按调用顺序存进当前渲染态。
  * `render(component, patches)` 先渲染一次，然后依次把 `[槽位, 值]` 写进 hooks 再重渲染，
@@ -233,7 +241,9 @@ const happyClassify = {
  * 找出 hook 槽位：不靠手数，直接按组件里 useState 的调用顺序推导。
  * 顺序来自 ReaLitePage 源码：locale, state, error, note, busy, query, matches,
  * expanded, editing, draftId, draftLabel, draftTools, customError, allTools,
- * toolFilter, pickedBundle, report, maintBusy, maintLog, maintError, classify, maintLive。
+ * toolFilter, pickedBundle, report, maintBusy, maintLog, maintError, classify, maintLive,
+ * presetName, presetNote, presetError。
+ * 新 state 一律追加在末尾（插在中间会让后面所有槽位错位，已经踩过一次）。
  */
 const HOOK = {
   locale: 0,
@@ -258,6 +268,9 @@ const HOOK = {
   maintError: 19,
   classify: 20,
   maintLive: 21,
+  presetName: 22,
+  presetNote: 23,
+  presetError: 24,
 };
 
 // ── 1. 首屏（state=null） ───────────────────────────────────────────────────
@@ -360,6 +373,55 @@ console.log('\n报错/提示态');
   const text = textOf(tree).join(' ');
   check('error 渲染成红色提示', text.includes('保存失败：配置不可写'));
   check('note 渲染成成功提示', text.includes('已保存，代理已热切换'));
+}
+
+// ── 7. 预设区块（有数据 / 旧宿主没有这个字段） ──────────────────────────────
+
+console.log('\n预设');
+{
+  const { component, runtime } = buildComponent();
+  const preset = (overrides) => ({
+    name: 'x', label: '', note: '', savedAt: '2026-10-24T10:00:00.000Z', activeBundles: [], applied: [],
+    missing: [], unavailable: [], toolCount: 0, tokens: 0, lite: null, shortDescription: null, metaTools: null,
+    current: false, ...overrides,
+  });
+  const tree = runtime.render(component, [
+    [
+      [
+        HOOK.state,
+        baseState({
+          presets: [
+            preset({ name: '原生深挖', label: '原生深挖', note: 'native 为主', applied: ['nav'], toolCount: 2, tokens: 661, lite: 'mild', current: true }),
+            preset({ name: '旧的', savedAt: '2026-10-01T10:00:00.000Z', missing: ['my-group'], unavailable: ['capture'] }),
+          ],
+        }),
+      ],
+    ],
+  ]);
+  const text = textOf(tree).join(' ');
+  check('渲染出预设区块与说明', text.includes('存成一套带名字的方案'));
+  check('渲染出预设名与备注', text.includes('原生深挖') && text.includes('native 为主'));
+  check('当前生效的预设有标记', text.includes('当前生效'));
+  check('保存时间渲染成可读形式', text.includes('2026-10-24 10:00'));
+  check('渲染出读取时间那行的族清单', text.includes('nav'));
+  check('引用的族已不存在时标出来', text.includes('引用的族已不存在') && text.includes('my-group'));
+  check('这一版 REA 没这族时标出来', text.includes('这一版 REA 没有这些族的工具') && text.includes('capture'));
+  check('渲染出读取/删除按钮', text.includes('读取') && text.includes('删除'));
+  check('渲染出保存按钮与名字输入框', text.includes('存下当前勾选') && hasProp(tree, 'placeholder', '预设名'));
+}
+{
+  // 旧宿主半不返回 presets：必须按空列表渲染（取错属性 = 白屏）。
+  const { component, runtime } = buildComponent();
+  const legacy = baseState();
+  delete legacy.presets;
+  const tree = runtime.render(component, [[[HOOK.state, legacy]]]);
+  const text = textOf(tree).join(' ');
+  check('宿主半没返回 presets 时按空列表渲染', text.includes('还没有预设') && !text.includes('undefined'));
+}
+{
+  const { component, runtime } = buildComponent();
+  const tree = runtime.render(component, [[[HOOK.state, baseState({ presets: [] })]], [[HOOK.presetError, '预设名不能含 /']]]);
+  check('预设错误渲染成红色提示', textOf(tree).join(' ').includes('预设名不能含 /'));
 }
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`);

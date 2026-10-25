@@ -399,6 +399,8 @@ export function computeState(input) {
     savings: totalTokens > 0 ? Math.round((1 - activeTokens / totalTokens) * 1000) / 10 : 0,
     live: input.live ?? { toolCount: 0, tokens: 0 },
     server: input.server ?? { known: false, phase: 'unknown' },
+    // 命名预设（已拍成面板要的形状，见 buildState）。
+    presets: Array.isArray(input.presets) ? input.presets : [],
     // 更新开关（面板展示与写回都用它）。
     updates: input.updates ?? {},
     warnings,
@@ -467,15 +469,43 @@ export function apply(ctx, config) {
         issue: `这里不像 rea-mcp-lite 网关（缺 src/bundles.mjs）：${root}。请把本插件与网关放在同一仓库，或设置 REA_LITE_ROOT。`,
       });
     }
-    const [{ effectiveBundles, ALL_BUNDLE, extrasOf }, { loadConfig, CONFIG_PATH }, { readSnapshot, tokensOfChars }] = await Promise.all([
+    const [{ effectiveBundles, ALL_BUNDLE, extrasOf }, { loadConfig, CONFIG_PATH }, { readSnapshot, tokensOfChars }, { listPresets, presetReport, presetCost, presetIsCurrent }] = await Promise.all([
       loadGatewayModule(root, 'src/bundles.mjs'),
       loadGatewayModule(root, 'src/config.mjs'),
       loadGatewayModule(root, 'src/snapshot.mjs'),
+      loadGatewayModule(root, 'src/presets.mjs'),
     ]);
     const configPath = CONFIG_PATH ?? path.join(root, 'config.json');
     const config = loadConfig();
     // 生效族表 = 内置族 + 用户自定义族 + 追加归类，面板要能一起显示与开关。
     const table = effectiveBundles(config.customBundles, config.bundleExtras);
+    const snapshot = readSnapshot();
+    const snapshotTools = snapshot?.tools ?? [];
+    // 预设的展示口径与「合计」一致：每工具字符数取自快照，不另立一套算法。
+    const knownTools = snapshotTools.map((tool) => tool.name);
+    const toolChars = new Map(snapshotTools.map((tool) => [tool.name, tool.chars ?? 0]));
+    const presets = listPresets(config).map((preset) => {
+      const report = presetReport(preset, { defs: table, knownTools, allBundle: ALL_BUNDLE });
+      const cost = presetCost(preset, { defs: table, toolChars, allBundle: ALL_BUNDLE, tokensOfChars });
+      return {
+        name: preset.name,
+        label: preset.label ?? '',
+        note: preset.note ?? '',
+        savedAt: preset.savedAt ?? '',
+        activeBundles: [...preset.activeBundles],
+        applied: report.applied,
+        // 引用的族已经不存在（旧预设/自定义族被删）：读取时会跳过，面板要如实标出来。
+        missing: report.missing,
+        // 族在、但这一版 REA 一个工具都没有：能读，只是加载不到东西。
+        unavailable: report.unavailable,
+        toolCount: cost.toolCount,
+        tokens: cost.tokens,
+        lite: typeof preset.lite === 'string' ? preset.lite : null,
+        shortDescription: typeof preset.shortDescription === 'boolean' ? preset.shortDescription : null,
+        metaTools: typeof preset.metaTools === 'boolean' ? preset.metaTools : null,
+        current: presetIsCurrent(preset, config),
+      };
+    });
     return computeState({
       root,
       configPath,
@@ -483,12 +513,13 @@ export function apply(ctx, config) {
       config,
       bundleDefs: table,
       allBundle: ALL_BUNDLE,
-      snapshot: readSnapshot(),
+      snapshot,
       tokensOfChars,
       live,
       server,
       updates: config.updates ?? {},
       extras: typeof extrasOf === 'function' ? extrasOf(table, config.bundleExtras) : [],
+      presets,
     });
   };
 
@@ -515,6 +546,76 @@ export function apply(ctx, config) {
       saved: true,
       // 代理监听 config.json 后会自己热切换；服务器没跑起来时只能是「待生效」。
       applied: state.server.phase === 'active' ? 'hot' : 'pending',
+      state,
+    };
+  };
+
+  /**
+   * 命名预设：保存当前勾选 / 读取预设 / 删除预设。
+   * body: { action: 'save' | 'apply' | 'delete', name, label?, note?, bundles? }
+   *
+   * 与 CLI、代理的元工具共用网关的 presets.mjs（纯函数），面板不复制「什么算可读」的判断：
+   * 三处判断分叉过一次就很难发现（归类那边已经踩过）。
+   */
+  const savePreset = async (body) => {
+    const root = resolveGatewayRoot(configuredRoot);
+    if (!isGatewayRoot(root)) throw new Error(`找不到 rea-mcp-lite 网关：${root}`);
+    const [{ effectiveBundles, ALL_BUNDLE }, { loadConfig, saveConfig, CONFIG_PATH, configPath }, { readSnapshot }, { normalizePresetName, capturePreset, applyPreset, removePreset }] = await Promise.all([
+      loadGatewayModule(root, 'src/bundles.mjs'),
+      loadGatewayModule(root, 'src/config.mjs'),
+      loadGatewayModule(root, 'src/snapshot.mjs'),
+      loadGatewayModule(root, 'src/presets.mjs'),
+    ]);
+    const configPathNow = typeof configPath === 'function' ? configPath() : CONFIG_PATH;
+    if (!probeWritable(configPathNow)) throw new Error(`配置文件不可写：${configPathNow}`);
+    const current = loadConfig();
+    const action = String(body?.action ?? 'save');
+
+    if (action === 'delete') {
+      const result = removePreset(current, body?.name);
+      saveConfig(result.config);
+      return { ok: true, removed: result.removed, state: await buildState() };
+    }
+
+    if (action === 'apply') {
+      const name = normalizePresetName(body?.name);
+      const preset = (current.presets ?? {})[name];
+      if (preset === undefined) {
+        throw new Error(`没有预设：${name}。已有：${Object.keys(current.presets ?? {}).join(', ') || '（无）'}`);
+      }
+      const table = effectiveBundles(current.customBundles, current.bundleExtras);
+      const knownTools = (readSnapshot()?.tools ?? []).map((tool) => tool.name);
+      const result = applyPreset(current, preset, { defs: table, knownTools, allBundle: ALL_BUNDLE });
+      saveConfig(result.config);
+      const state = await buildState();
+      return {
+        ok: true,
+        name,
+        saved: true,
+        applied: state.server.phase === 'active' ? 'hot' : 'pending',
+        activeBundles: result.applied,
+        missing: result.missing,
+        unavailable: result.unavailable,
+        // 裁剪档随预设变化时要告诉用户「成本口径重算了」，否则他会以为数字出错了。
+        changed: result.changed,
+        state,
+      };
+    }
+
+    if (action !== 'save') throw new Error(`未知动作：${action}。可用：save / apply / delete`);
+    const bundles = Array.isArray(body?.bundles) ? body.bundles : current.activeBundles;
+    const table = effectiveBundles(current.customBundles, current.bundleExtras);
+    const unknown = bundles.filter((id) => id !== ALL_BUNDLE && !Object.hasOwn(table, id));
+    if (unknown.length > 0) throw new Error(`未知功能族：${unknown.join(', ')}（可用：${Object.keys(table).join(', ')}, ${ALL_BUNDLE}）`);
+    const captured = capturePreset(current, { name: body?.name, label: body?.label, note: body?.note, bundles });
+    saveConfig({ ...current, presets: { ...(current.presets ?? {}), [captured.name]: captured.preset } });
+    const state = await buildState();
+    return {
+      ok: true,
+      name: captured.name,
+      saved: true,
+      replaced: captured.replaced,
+      preset: captured.preset,
       state,
     };
   };
@@ -837,6 +938,10 @@ export function apply(ctx, config) {
       }
       if (route === '/custom' && req.method === 'POST') {
         sendJson(res, 200, await saveCustom(await readJsonBody(req)));
+        return;
+      }
+      if (route === '/presets' && req.method === 'POST') {
+        sendJson(res, 200, await savePreset(await readJsonBody(req)));
         return;
       }
       if (route === '/tools' && req.method === 'GET') {

@@ -77,6 +77,24 @@ window.__ModuleLoader__.load({
         customPicked: '已选',
         customSaved: '自定义分组已保存。',
         customRemoved: '自定义分组已删除。',
+        presetsTitle: '预设',
+        presetsHint: '把「勾选了哪些族 + 用哪档裁剪」存成一套带名字的方案，之后一键切回。预设只写进 config.json，不含任何本机路径。',
+        presetNamePlaceholder: '预设名，例如 原生深挖',
+        presetNotePlaceholder: '备注（可选，写给日后的自己）',
+        presetSave: '存下当前勾选',
+        presetApply: '读取',
+        presetDelete: '删除',
+        presetCurrent: '当前生效',
+        presetSaved: '已保存预设。点「读取」会把它写回勾选与裁剪档。',
+        presetOverwrote: '已有同名预设，已覆盖。',
+        presetApplied: '已读取预设：勾选与裁剪档都写回了，约 1 秒热切换。',
+        presetRemoved: '已删除预设（当前勾选不受影响）。',
+        presetMissing: '引用的族已不存在，读取时会跳过',
+        presetUnavailable: '这一版 REA 没有这些族的工具',
+        presetEmpty: '还没有预设。把勾选调到想要的样子，再存下来。',
+        presetSavedAt: '保存于',
+        presetShape: '裁剪档',
+        presetCount: '个族',
         cancel: '取消',
         addToCustom: '加入自定义分组',
         toEnableHint: '去「MCP 管理」把 rea 启用后，这里的勾选才会真正生效。',
@@ -200,6 +218,24 @@ window.__ModuleLoader__.load({
         customPicked: 'Picked',
         customSaved: 'Custom group saved.',
         customRemoved: 'Custom group deleted.',
+        presetsTitle: 'Presets',
+        presetsHint: 'Save “which bundles are checked + which schema profile” as a named set, then switch back with one click. Presets live in config.json and never carry machine paths.',
+        presetNamePlaceholder: 'Preset name, e.g. native deep dive',
+        presetNotePlaceholder: 'Note (optional — for future you)',
+        presetSave: 'Save current selection',
+        presetApply: 'Load',
+        presetDelete: 'Delete',
+        presetCurrent: 'in effect',
+        presetSaved: 'Preset saved. “Load” writes it back to the checkboxes and the schema profile.',
+        presetOverwrote: 'A preset with that name existed; it was overwritten.',
+        presetApplied: 'Preset loaded: selection and schema profile written back, hot-swapping in about a second.',
+        presetRemoved: 'Preset deleted (the current selection is untouched).',
+        presetMissing: 'referenced bundles no longer exist; they are skipped',
+        presetUnavailable: 'this REA version has no tools for these bundles',
+        presetEmpty: 'No presets yet. Set the checkboxes the way you want, then save.',
+        presetSavedAt: 'saved',
+        presetShape: 'schema profile',
+        presetCount: 'bundles',
         cancel: 'Cancel',
         addToCustom: 'Add to custom group',
         toEnableHint: 'Enable rea in MCP manager first — these checkboxes only take effect then.',
@@ -393,6 +429,11 @@ window.__ModuleLoader__.load({
       '.realp-maint-arrow{color:var(--dsw-alias-label-secondary)}',
       '.realp-maint-target{color:var(--dsw-alias-brand-primary)}',
       '.realp-maint-switch{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dsw-alias-label-secondary)}',
+      // ── 预设 ──
+      '.realp-preset-save{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}',
+      '.realp-preset-name{max-width:230px}',
+      '.realp-preset-note{max-width:300px}',
+      '.realp-preset-actions{display:flex;align-items:center;gap:6px;flex:0 0 auto}',
     ].join('');
 
     /**
@@ -483,6 +524,11 @@ window.__ModuleLoader__.load({
       var [maintError, setMaintError] = useState('');
       var [classify, setClassify] = useState(null);
       var [maintLive, setMaintLive] = useState(false);
+      // 预设：草稿名与草稿备注（读取/删除作用于已有条目，不需要草稿）。
+      // 新 state 一律追加在**末尾**：自检脚本按位置索引 hook 槽位，插在中间会让后面的槽位整体错位。
+      var [presetName, setPresetName] = useState('');
+      var [presetNote, setPresetNote] = useState('');
+      var [presetError, setPresetError] = useState('');
       var pollRef = useRef(null);
 
       var t = makeT(locale);
@@ -674,6 +720,64 @@ window.__ModuleLoader__.load({
           });
       }
 
+      // ── 预设（保存/读取/删除当前这套视角） ────────────────────────────────
+
+      function savePreset() {
+        var name = presetName.trim();
+        if (name === '') return;
+        setPresetError('');
+        setBusy(true);
+        api('presets', { action: 'save', name: name, note: presetNote.trim() })
+          .then(function (payload) {
+            setState(payload.state);
+            setPresetName('');
+            setPresetNote('');
+            setNote(payload.replaced ? t('presetOverwrote') : t('presetSaved'));
+          })
+          .catch(function (failure) {
+            setPresetError(String(failure.message || failure));
+          })
+          .then(function () {
+            setBusy(false);
+          });
+      }
+
+      function applyPreset(name) {
+        setPresetError('');
+        setBusy(true);
+        api('presets', { action: 'apply', name: name })
+          .then(function (payload) {
+            setState(payload.state);
+            var extra = [];
+            if (payload.missing && payload.missing.length) extra.push(t('presetMissing') + '：' + payload.missing.join(', '));
+            if (payload.unavailable && payload.unavailable.length) extra.push(t('presetUnavailable') + '：' + payload.unavailable.join(', '));
+            setNote([t('presetApplied')].concat(extra).join(' '));
+            pollAfterSave();
+          })
+          .catch(function (failure) {
+            setPresetError(String(failure.message || failure));
+          })
+          .then(function () {
+            setBusy(false);
+          });
+      }
+
+      function removePreset(name) {
+        setPresetError('');
+        setBusy(true);
+        api('presets', { action: 'delete', name: name })
+          .then(function (payload) {
+            setState(payload.state);
+            setNote(t('presetRemoved'));
+          })
+          .catch(function (failure) {
+            setPresetError(String(failure.message || failure));
+          })
+          .then(function () {
+            setBusy(false);
+          });
+      }
+
       // ── 更新与体检 ────────────────────────────────────────────────────────
 
       /** 只读检查：并发拿报告与归类预览；任何一步失败都只写进 maintError。 */
@@ -808,6 +912,8 @@ window.__ModuleLoader__.load({
       var serverPhase = state.server?.phase ?? 'unknown';
       var serverTone = serverPhase === 'active' ? 'ok' : serverPhase === 'failed' || serverPhase === 'disconnected' ? 'bad' : 'warn';
       var serverText = (t('server') && t('server')[serverPhase]) || serverPhase;
+      // 宿主半可能是旧版本（没返回 presets）：缺了就按空列表渲染，别整页白屏。
+      var presets = Array.isArray(state.presets) ? state.presets : [];
 
       return h(
         'div',
@@ -1191,6 +1297,97 @@ window.__ModuleLoader__.load({
                       );
                     }),
                 ),
+        ),
+
+        h(
+          'div',
+          { className: 'realp-section' },
+          h(
+            'div',
+            { className: 'realp-section-head' },
+            h('h3', null, t('presetsTitle')),
+            h(
+              'span',
+              { className: 'realp-foot' },
+              presets.length ? presets.length + ' × ' + t('presetCount') : t('presetEmpty'),
+            ),
+          ),
+          h('p', { className: 'realp-section-hint' }, t('presetsHint')),
+          presets.length === 0
+            ? null
+            : h(
+                'div',
+                { className: 'realp-list' },
+                presets.map(function (preset) {
+                  return h(
+                    'div',
+                    { className: 'realp-row' + (preset.current ? ' realp-row-on' : ''), key: 'p-' + preset.name },
+                    h(
+                      'div',
+                      { className: 'realp-grow' },
+                      h(
+                        'div',
+                        { className: 'realp-row-title' },
+                        h('span', null, preset.label || preset.name),
+                        preset.label ? h('code', null, preset.name) : null,
+                        h('span', { className: 'realp-tag' + (preset.current ? ' realp-tag-on' : '') }, preset.applied.length + ' ' + t('presetCount')),
+                        h('span', { className: 'realp-tag' }, tokens(preset.tokens)),
+                        preset.lite ? h('span', { className: 'realp-tag' }, t('presetShape') + ' ' + preset.lite) : null,
+                        preset.current ? h('span', { className: 'realp-tag realp-tag-on' }, t('presetCurrent')) : null,
+                        preset.missing.length
+                          ? h('span', { className: 'realp-tag realp-tag-warn' }, t('presetMissing') + '：' + preset.missing.join(', '))
+                          : null,
+                        preset.unavailable.length
+                          ? h('span', { className: 'realp-tag realp-tag-off' }, t('presetUnavailable') + '：' + preset.unavailable.join(', '))
+                          : null,
+                      ),
+                      h(
+                        'div',
+                        { className: 'realp-row-hint' },
+                        (preset.applied.join(', ') || t('noneOn')) +
+                          (preset.savedAt ? '   ·   ' + t('presetSavedAt') + ' ' + String(preset.savedAt).replace('T', ' ').slice(0, 16) : ''),
+                      ),
+                      preset.note ? h('div', { className: 'realp-row-hint' }, preset.note) : null,
+                    ),
+                    h(
+                      'div',
+                      { className: 'realp-preset-actions' },
+                      h(
+                        'button',
+                        { type: 'button', className: 'realp-btn', disabled: busy || !state.writable, onClick: function () { applyPreset(preset.name); } },
+                        t('presetApply'),
+                      ),
+                      h(
+                        'button',
+                        { type: 'button', className: 'realp-btn realp-btn-danger', disabled: busy || !state.writable, onClick: function () { removePreset(preset.name); } },
+                        t('presetDelete'),
+                      ),
+                    ),
+                  );
+                }),
+              ),
+          h(
+            'div',
+            { className: 'realp-preset-save' },
+            h('input', {
+              className: 'realp-input realp-preset-name',
+              value: presetName,
+              placeholder: t('presetNamePlaceholder'),
+              onChange: function (event) { setPresetName(event.target.value); },
+            }),
+            h('input', {
+              className: 'realp-input realp-preset-note',
+              value: presetNote,
+              placeholder: t('presetNotePlaceholder'),
+              onChange: function (event) { setPresetNote(event.target.value); },
+            }),
+            h(
+              'button',
+              { type: 'button', className: 'realp-btn', disabled: busy || !state.writable || presetName.trim() === '', onClick: savePreset },
+              t('presetSave'),
+            ),
+          ),
+          presetError ? h('div', { className: 'realp-note realp-note-error' }, presetError) : null,
         ),
 
         h(

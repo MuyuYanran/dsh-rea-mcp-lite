@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // 命令行入口。三类命令：
-//   族与工具：status / list / use / all / none / custom / snapshot
+//   族与工具：status / list / use / all / none / custom / preset / snapshot
 //   归类：classify（把 REA 新版新增的未归族工具自动归入功能族，写 config.bundleExtras）
 //   更新与体检：check / update-self / update-rea / doctor
 // 改 config.json 的部分，若 DSH 正在运行，代理会监听文件并立刻热更新工具列表（无需重启）。
 import { ALL_BUNDLE, describeBundles, unassignedTools, effectiveBundles, normalizeCustomBundle, extrasOf } from './bundles.mjs';
 import { projectTool, estimateTokens } from './lite.mjs';
 import { loadConfig, saveConfig, CONFIG_PATH, ROOT } from './config.mjs';
-import { buildSnapshot, writeSnapshot, readSnapshot, SNAPSHOT_PATH } from './snapshot.mjs';
+import { buildSnapshot, writeSnapshot, readSnapshot, SNAPSHOT_PATH, tokensOfChars } from './snapshot.mjs';
+import { normalizePresetName, capturePreset, listPresets, applyPreset, presetReport, presetCost, removePreset, presetIsCurrent } from './presets.mjs';
 import { probeTools } from './probe-client.mjs';
 import { classifyTools, buildClassifierPrompt } from './classify.mjs';
 import {
@@ -58,6 +59,11 @@ function printStatus() {
         console.log(`注意：自动归类里有当前快照中不存在的工具（${undefinedExtras.map((e) => e.name).join(', ')}），可能已过期`);
       }
     }
+  }
+  const presets = listPresets(config);
+  if (presets.length) {
+    const current = presets.filter((preset) => presetIsCurrent(preset, config)).map((preset) => preset.name);
+    console.log(`预设：${presets.length} 个${current.length ? `（当前生效：${current.join(', ')}）` : ''} —— node src/cli.mjs preset 查看`);
   }
 }
 
@@ -124,7 +130,7 @@ async function printBundles(live) {
     const restNames = unassignedTools(names, table);
     if (restNames.length) console.log(`\n未归族：${restNames.join(', ')}\n用 node src/cli.mjs classify 看建议`);
   }
-  console.log(`\n用法：node src/cli.mjs use <族名…> | all | none | list | status | snapshot | classify | check | doctor`);
+  console.log(`\n用法：node src/cli.mjs use <族名…> | all | none | list | status | preset | snapshot | classify | check | doctor`);
 }
 
 // ── classify：把未归族的新工具自动归类 ──────────────────────────────────────
@@ -197,6 +203,142 @@ async function runClassify() {
   }
 
   console.log('\n这一步只做展示。写入用：--apply（高置信度自动写）或 --set tool=bundle,…（手工指定）。');
+}
+
+// ── preset：命名预设（加载集合 + 裁剪档的存档） ─────────────────────────────
+
+/** 预设展示/校验要用的一份只读材料：族表、当前 REA 的工具名、每工具字符数。 */
+function presetContext(config) {
+  const snapshot = readSnapshot();
+  const tools = snapshot?.tools ?? [];
+  return {
+    table: effectiveBundles(config.customBundles, config.bundleExtras),
+    knownTools: tools.map((tool) => tool.name),
+    toolChars: new Map(tools.map((tool) => [tool.name, tool.chars ?? 0])),
+    source: snapshot ? `快照 ${snapshot.generatedAt}` : '无快照（成本显示为 0，先跑 node src/cli.mjs snapshot）',
+  };
+}
+
+/** 一行摘要：勾选、成本、保存时间，以及「引用的族没了」这类需要用户处理的事。 */
+function printPresetLine(preset, context, current) {
+  const cost = presetCost(preset, { defs: context.table, toolChars: context.toolChars, allBundle: ALL_BUNDLE, tokensOfChars });
+  const report = presetReport(preset, { defs: context.table, knownTools: context.knownTools, allBundle: ALL_BUNDLE });
+  const label = preset.label && preset.label !== preset.name ? `  ${preset.label}` : '';
+  const when = typeof preset.savedAt === 'string' ? preset.savedAt.replace('T', ' ').slice(0, 16) : '';
+  console.log(`${current ? '●' : '○'} ${preset.name.padEnd(18)} ${String(report.applied.length).padStart(2)} 个族  ${`~${cost.tokens} tok`.padStart(9)}  ${cost.toolCount} 个工具${label}`);
+  console.log(`  ${' '.repeat(16)} ${report.applied.join(', ') || '（仅元工具）'}${when ? `   ${when}` : ''}`);
+  if (preset.note) console.log(`  ${' '.repeat(16)} 备注：${preset.note}`);
+  if (report.missing.length) console.log(`  ${' '.repeat(16)} 引用的族已不存在，读取时会跳过：${report.missing.join(', ')}`);
+  if (report.unavailable.length) console.log(`  ${' '.repeat(16)} 当前 REA 版本没有这些族的工具：${report.unavailable.join(', ')}`);
+}
+
+function runPreset() {
+  const sub = rest[0] ?? 'list';
+  const config = loadConfig();
+  const context = presetContext(config);
+  const name = rest[1];
+
+  if (sub === 'list' || sub === 'ls') {
+    const presets = listPresets(config);
+    if (!presets.length) {
+      console.log('还没有预设。先把勾选调到想要的样子，然后：');
+      console.log('  node src/cli.mjs preset save 原生深挖 --note "native + evidence"');
+      return;
+    }
+    console.log(`预设 ${presets.length} 个（● = 当前生效；数据来源：${context.source}）\n`);
+    for (const preset of presets) printPresetLine(preset, context, presetIsCurrent(preset, config));
+    console.log('\n读取：node src/cli.mjs preset use <名>    保存当前勾选：node src/cli.mjs preset save <名>    删除：preset remove <名>');
+    return;
+  }
+
+  if (sub === 'show') {
+    const preset = (config.presets ?? {})[name ?? ''];
+    if (preset === undefined) {
+      console.error(`没有预设：${name ?? '(未指定)'}。已有：${Object.keys(config.presets ?? {}).join(', ') || '（无）'}`);
+      process.exit(1);
+    }
+    console.log(`预设：${name}${preset.label ? `（${preset.label}）` : ''}${presetIsCurrent(preset, config) ? '  ← 当前生效' : ''}`);
+    if (preset.note) console.log(`备注：${preset.note}`);
+    if (preset.savedAt) console.log(`保存于：${preset.savedAt}`);
+    printPresetLine({ name, ...preset }, context, false);
+    console.log(`\nschema 裁剪：${preset.lite ?? '（未记录）'}   短描述：${preset.shortDescription === undefined ? '（未记录）' : preset.shortDescription ? '开' : '关'}   元工具：${preset.metaTools === undefined ? '（未记录）' : preset.metaTools ? '开' : '关'}`);
+    console.log(`读取它：node src/cli.mjs preset use ${name}`);
+    return;
+  }
+
+  if (sub === 'save') {
+    let captured;
+    const explicit = arg('--bundles');
+    const bundles = explicit === undefined
+      ? config.activeBundles
+      : explicit.split(',').map((entry) => entry.trim()).filter(Boolean);
+    const unknown = bundles.filter((entry) => entry !== ALL_BUNDLE && !Object.hasOwn(context.table, entry));
+    if (unknown.length) {
+      console.error(`未知功能族：${unknown.join(', ')}\n已知：${Object.keys(context.table).join(', ')}, ${ALL_BUNDLE}`);
+      process.exit(1);
+    }
+    try {
+      captured = capturePreset(config, { name, label: arg('--label'), note: arg('--note'), bundles });
+    } catch (error) {
+      console.error(error.message);
+      process.exit(1);
+    }
+    saveConfig({ ...config, presets: { ...(config.presets ?? {}), [captured.name]: captured.preset } });
+    const cost = presetCost(captured.preset, { defs: context.table, toolChars: context.toolChars, allBundle: ALL_BUNDLE, tokensOfChars });
+    console.log(`${captured.replaced ? '已覆盖' : '已保存'}预设 ${captured.name}：${captured.preset.activeBundles.join(', ') || '（仅元工具）'}，${cost.toolCount} 个工具、约 ${cost.tokens} tok；裁剪档一并记下（lite=${captured.preset.lite ?? '未记录'}）。`);
+    console.log(`读取它：node src/cli.mjs preset use ${captured.name}`);
+    return;
+  }
+
+  if (sub === 'use' || sub === 'load') {
+    const key = (() => {
+      try {
+        return normalizePresetName(name);
+      } catch (error) {
+        console.error(error.message);
+        process.exit(1);
+        return '';
+      }
+    })();
+    const preset = (config.presets ?? {})[key];
+    if (preset === undefined) {
+      console.error(`没有预设：${key || '(未指定)'}。已有：${Object.keys(config.presets ?? {}).join(', ') || '（无）'}`);
+      process.exit(1);
+    }
+    const result = applyPreset(config, preset, { defs: context.table, knownTools: context.knownTools, allBundle: ALL_BUNDLE });
+    saveConfig(result.config);
+    console.log(`已读取预设 ${key}：当前加载 ${result.applied.join(', ') || '（仅元工具）'}。DSH 在运行时将自动热切换。`);
+    if (result.missing.length) console.log(`注意：这些族已不存在，没有加载：${result.missing.join(', ')}`);
+    if (result.unavailable.length) console.log(`注意：当前 REA 版本没有这些族的工具：${result.unavailable.join(', ')}`);
+    if (result.changed.length) {
+      console.log(`裁剪档变化：${result.changed.map((entry) => `${entry.key} ${entry.from} → ${entry.to}`).join('；')}`);
+      console.log('接着跑 node src/cli.mjs snapshot 刷新快照，面板上的成本才会跟上。');
+    }
+    return;
+  }
+
+  if (sub === 'remove' || sub === 'rm' || sub === 'delete') {
+    let result;
+    try {
+      result = removePreset(config, name);
+    } catch (error) {
+      console.error(error.message);
+      process.exit(1);
+      return;
+    }
+    saveConfig(result.config);
+    console.log(`已删除预设 ${result.removed}（当前加载的勾选不受影响）。`);
+    return;
+  }
+
+  console.error(
+    '用法：node src/cli.mjs preset [list]\\n' +
+      '      node src/cli.mjs preset show <名>\\n' +
+      '      node src/cli.mjs preset save <名> [--bundles a,b] [--label <显示名>] [--note <备注>]\\n' +
+      '      node src/cli.mjs preset use <名>\\n' +
+      '      node src/cli.mjs preset remove <名>',
+  );
+  process.exit(1);
 }
 
 // ── check / doctor：更新与覆盖体检 ──────────────────────────────────────────
@@ -319,7 +461,7 @@ else if (command === 'update-self') {
 } else if (command === 'none' || command === 'gateway') {
   const config = loadConfig();
   saveConfig({ ...config, activeBundles: [] });
-  console.log('已设为仅元工具（上下文成本约 0.4k tok，全部工具仍可通过 call_tool 调用）。');
+  console.log('已设为仅元工具（上下文成本约 0.6k tok，全部工具仍可通过 call_tool 调用）。');
 } else if (command === 'use') {
   const config = loadConfig();
   const table = effectiveBundles(config.customBundles, config.bundleExtras);
@@ -331,7 +473,8 @@ else if (command === 'update-self') {
   }
   saveConfig({ ...config, activeBundles: [...new Set(rest)] });
   console.log(`已设为加载：${[...new Set(rest)].join(', ') || '（无）'}。DSH 在运行时将自动热更新。`);
-} else if (command === 'bundles' || command === 'custom') {
+} else if (command === 'preset' || command === 'presets') runPreset();
+else if (command === 'bundles' || command === 'custom') {
   // 自定义族管理：node src/cli.mjs custom <list|add|remove>
   const sub = rest[0] ?? 'list';
   const config = loadConfig();
@@ -365,6 +508,8 @@ else if (command === 'update-self') {
 } else {
   console.error(
     '用法：node src/cli.mjs status | list | use <族名…> | all | none | snapshot\n' +
+      '      preset [list|show|save|use|remove] <名>        把勾选与裁剪档存成命名预设、一键切回\n' +
+      '      custom [list|add|remove]                     自定义功能族\n' +
       '      classify [--apply] [--set tool=bundle,…]   把 REA 新版新增工具归族\n' +
       '      check | doctor                            更新与工具覆盖体检\n' +
       '      update-self [--apply]                     本仓库快进到远端\n' +

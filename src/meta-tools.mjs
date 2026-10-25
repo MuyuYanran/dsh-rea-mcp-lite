@@ -6,12 +6,18 @@ export const META_TOOLS = [
   {
     name: 'bundles',
     description:
-      '列出或切换 REA 功能族。REA 的逆向工具默认不全量加载（否则占用大量上下文）；本工具显示每个功能族的工具数、上下文成本与加载状态，并可用 action=activate/deactivate/set 即时开关（热更新，无需重启）。',
+      '列出或切换 REA 功能族，以及管理命名预设。REA 的逆向工具默认不全量加载（否则占用大量上下文）；本工具显示每个功能族的工具数、上下文成本与加载状态，并可用 action=activate/deactivate/set 即时开关（热更新，无需重启）。把常用组合存成预设后，之后 action=load-preset 一键切回。',
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['list', 'activate', 'deactivate', 'set'], description: '默认 list；activate/deactivate 为增量开关，set 为直接替换当前加载集合。' },
+        action: {
+          type: 'string',
+          enum: ['list', 'activate', 'deactivate', 'set', 'save-preset', 'load-preset', 'remove-preset'],
+          description: '默认 list；activate/deactivate 增量开关，set 直接替换；save-preset/load-preset/remove-preset 管理预设（配合 preset）。',
+        },
         bundles: { type: 'array', items: { type: 'string' }, description: `族名数组，如 ["web","js"]；可用 all 表示当前版本的全部工具。已知族：${Object.keys(BUNDLES).join(', ')}` },
+        preset: { type: 'string', description: '预设名；save-preset 同名则覆盖，load-preset/remove-preset 指定已有预设。' },
+        note: { type: 'string', description: 'save-preset 的备注（可选）。' },
       },
     },
   },
@@ -84,6 +90,32 @@ export async function handleMetaTool(name, args, ctx) {
 
   if (name === 'bundles') {
     const action = args?.action ?? 'list';
+    if (action === 'save-preset' || action === 'load-preset' || action === 'remove-preset') {
+      const presetName = String(args?.preset ?? '').trim();
+      if (presetName === '') return fail('缺少 preset 参数（预设名）。用 action=list 看已有预设。');
+      if (typeof ctx.savePreset !== 'function' || typeof ctx.loadPreset !== 'function' || typeof ctx.removePreset !== 'function') {
+        return fail('这个版本的网关还没接上预设（请更新 rea-mcp-lite）。');
+      }
+      try {
+        if (action === 'save-preset') {
+          const saved = ctx.savePreset({ name: presetName, note: args?.note });
+          const cost = await ctx.describeExposed();
+          return text(`已${saved.replaced ? '覆盖' : '保存'}预设「${saved.name}」：[${saved.preset.activeBundles.join(', ') || '仅元工具'}]，裁剪档 ${saved.preset.lite ?? '未记录'}。之后用 {"action":"load-preset","preset":"${saved.name}"} 一键切回。\n\n${cost}`);
+        }
+        if (action === 'load-preset') {
+          const loaded = ctx.loadPreset(presetName);
+          const lines = [`已读取预设「${presetName}」：当前加载 [${loaded.applied.join(', ') || '仅元工具'}]。`];
+          if (loaded.missing.length) lines.push(`引用的功能族已不存在，未加载：${loaded.missing.join(', ')}`);
+          if (loaded.unavailable.length) lines.push(`当前 REA 版本没有这些族的工具：${loaded.unavailable.join(', ')}`);
+          if (loaded.changed.length) lines.push(`裁剪档随预设变化：${loaded.changed.map((entry) => `${entry.key} ${entry.from} → ${entry.to}`).join('；')}（成本口径已重算）`);
+          return text(`${lines.join('\n')}\n\n${await ctx.describeExposed()}`);
+        }
+        const removed = ctx.removePreset(presetName);
+        return text(`已删除预设「${removed.removed}」（当前加载的勾选不受影响）。`);
+      } catch (error) {
+        return fail(String(error?.message ?? error));
+      }
+    }
     if (action !== 'list') {
       const requested = Array.isArray(args?.bundles) ? args.bundles : [];
       const unknown = requested.filter((b) => b !== ALL_BUNDLE && !table[b]);
@@ -192,6 +224,11 @@ export async function describeExposedText(ctx) {
   const lines = describe();
   const unassigned = unassignedTools(names, typeof ctx.bundleTable === 'function' ? ctx.bundleTable() : undefined);
   const activeText = active.length ? active.join(', ') : `（无，仅 ${META_TOOLS.length} 个元工具）`;
+  // 预设存在时才提一句：模型知道有「一键切回的那套」，才会用 load-preset 而不是重新勾一遍。
+  const presets = typeof ctx.presets === 'function' ? ctx.presets() : [];
+  const presetText = presets.length
+    ? `\n预设（action=load-preset 读取，save-preset 存当前）：${presets.map((p) => `${p.name}[${p.activeBundles.join('+') || '仅元工具'}]`).join('  ')}`
+    : '';
   // 「全量加载要多少」也得现算，不能写死：这个数随 REA 版本与裁剪设置变（6.4.0 约 49k，6.7.0 约 26.7k）。
   const allTokens = estimateTokens(tools.map((t) => projectTool(t, { lite: ctx.lite() }))) + metaTokens;
   return [
@@ -201,6 +238,7 @@ export async function describeExposedText(ctx) {
     '功能族（用 action=activate/deactivate/set 开关，热更新）：',
     ...lines,
     unassigned.length ? `\n未归族的工具（REA 升级后新增，仍可直接 call_tool 调用）：${unassigned.join(', ')}\n用 maintenance action=classify 看建议并写入族` : '',
+    presetText,
     `\n提示：任何工具都可以不加载族直接用 call_tool 调用；参数细节用 tool_schema 查询。`,
   ].filter(Boolean).join('\n');
 }

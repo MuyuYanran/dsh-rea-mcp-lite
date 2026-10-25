@@ -259,9 +259,79 @@ check('全绿时一句话结论', /最新/.test(summary) && /归族/.test(summar
 const summaryWarn = summarize({ self: { ok: true, available: true, behind: 2 }, rea: { updateAvailable: true, installed: '1.0.0', latest: '2.0.0' }, coverage: { unassigned: ['x'], missingForLocal: [] } });
 check('有问题时一句话列全', /落后 2/.test(summaryWarn) && /新版/.test(summaryWarn) && /1 个新工具未归族/.test(summaryWarn), summaryWarn);
 
-// ── 9. 面板新接口 ──────────────────────────────────────────────────────────
+// ── 9. 命名预设（presets.mjs） ─────────────────────────────────────────────
 
-console.log('\n面板接口（/maintenance /classify /updates）');
+console.log('\n命名预设（presets.mjs）');
+
+const presets = await load('src/presets.mjs');
+const baseConfig = { activeBundles: ['nav', 'native'], lite: 'mild', shortDescription: true, metaTools: true, presets: {} };
+
+// 名字是人给的字面量（允许中文），但必须能安全当 JSON 键、能原样传进命令行。
+check('中文预设名可用（两侧空白被去掉）', presets.normalizePresetName('  原生深挖  ') === '原生深挖');
+for (const bad of ['', '   ', 'a/b', 'a\\b', 'a:b', 'a*b', 'x\u0000y', '.', '..', 'x'.repeat(49)]) {
+  let message = null;
+  try { presets.normalizePresetName(bad); } catch (error) { message = error.message; }
+  check(`非法预设名被拒：${JSON.stringify(bad).slice(0, 14)}`, message !== null, message ?? '（没有报错）');
+}
+
+// 拍取：勾选与三档裁剪开关都记下来；child 绝不能被带进来（那是本机专属路径）。
+const captured = presets.capturePreset(
+  { ...baseConfig, child: { command: 'node', args: ['rea.mjs', 'mcp'], env: { JAVA_HOME: 'D:/jdk' } } },
+  { name: '原生深挖', note: '  native 为主  ' },
+);
+check(
+  '拍取记下勾选与裁剪档',
+  JSON.stringify(captured.preset.activeBundles) === JSON.stringify(['nav', 'native']) && captured.preset.lite === 'mild' && captured.preset.metaTools === true,
+  JSON.stringify(captured.preset),
+);
+check('预设不含 child（本机路径不随预设走）', !Object.hasOwn(captured.preset, 'child'));
+check('备注被 trim，名字是规范化后的', captured.preset.note === 'native 为主' && captured.name === '原生深挖');
+check('同名保存能认出是覆盖', presets.capturePreset({ ...baseConfig, presets: { 原生深挖: captured.preset } }, { name: '原生深挖' }).replaced === true);
+check('显式 bundles 优先于当前勾选', JSON.stringify(presets.capturePreset(baseConfig, { name: 'x', bundles: ['web', 'web', ''] }).preset.activeBundles) === JSON.stringify(['web']));
+
+// 读取：存在的族进勾选，不存在的报 missing；裁剪档变化要列出来。
+const defs = { nav: { tools: ['address_name'] }, native: { tools: ['xrefs'] }, debug: { tools: ['start_frida_session'] } };
+const loadedPreset = presets.applyPreset(baseConfig, { activeBundles: ['nav', 'ghost'], lite: 'strict', metaTools: false }, { defs, knownTools: ['address_name', 'xrefs'], allBundle: 'all' });
+check('读取：存在的族进勾选，不存在的报 missing', JSON.stringify(loadedPreset.applied) === JSON.stringify(['nav']) && loadedPreset.missing.includes('ghost'), JSON.stringify(loadedPreset.applied));
+check('读取：裁剪档变化被列出来', loadedPreset.changed.length === 2 && loadedPreset.config.lite === 'strict' && loadedPreset.config.metaTools === false, JSON.stringify(loadedPreset.changed));
+check('读取不改原配置对象', baseConfig.lite === 'mild' && JSON.stringify(baseConfig.activeBundles) === JSON.stringify(['nav', 'native']));
+check('读取：这一版 REA 没有的族标 unavailable', presets.presetReport({ activeBundles: ['debug'] }, { defs, knownTools: ['address_name'] }).unavailable.includes('debug'));
+check('读取：all 直接通过（不查族表）', JSON.stringify(presets.presetReport({ activeBundles: ['all'] }, { defs }).applied) === JSON.stringify(['all']));
+
+// 当前生效判定：勾选与记下的裁剪档都要对得上。
+check('预设生效判定：全对才算当前', presets.presetIsCurrent({ activeBundles: ['native', 'nav'], lite: 'mild', metaTools: true }, baseConfig) === true);
+check('预设生效判定：裁剪档不同就不算', presets.presetIsCurrent({ activeBundles: ['native', 'nav'], lite: 'strict' }, baseConfig) === false);
+check('预设生效判定：没记裁剪档时不比它', presets.presetIsCurrent({ activeBundles: ['native', 'nav'] }, baseConfig) === true);
+
+// 成本：口径由调用方给（与快照同一份字符数），不在这里另立一套。
+const toolChars = new Map([['address_name', 360], ['xrefs', 360], ['start_frida_session', 720]]);
+const costNav = presets.presetCost({ activeBundles: ['nav'] }, { defs, toolChars, tokensOfChars: (chars) => Math.round(chars / 3.6) });
+check('成本按族内工具算', costNav.toolCount === 1 && costNav.tokens === 100, JSON.stringify(costNav));
+const costAll = presets.presetCost({ activeBundles: ['all'] }, { defs, toolChars, tokensOfChars: (chars) => chars });
+check('all 预设的成本是全部工具', costAll.toolCount === 3 && costAll.tokens === 1440, JSON.stringify(costAll));
+
+// 坏数据：读配置时逐条丢弃，不让一条垃圾拖垮整页。
+const normalized = presets.normalizePresets({
+  '好预设': { activeBundles: ['nav', 'nav', ''], lite: 'strict' },
+  'a/b': { activeBundles: [] },
+  '坏值': 'not-an-object',
+  '缺字段': {},
+});
+check('坏名字/坏值被丢掉，好条目保留', Object.keys(normalized).join(',') === '好预设,缺字段', Object.keys(normalized).join(','));
+check('勾选去重且丢掉空串', JSON.stringify(normalized['好预设'].activeBundles) === JSON.stringify(['nav']));
+check('缺字段也能成条目（空勾选可读）', JSON.stringify(normalized['缺字段'].activeBundles) === JSON.stringify([]));
+check('presets 不是对象时退回空表', Object.keys(presets.normalizePresets(['x'])).length === 0 && Object.keys(presets.normalizePresets(null)).length === 0);
+
+// 删除：不存在时报出已有名字，而不是静默成功。
+const removed = presets.removePreset({ presets: { a: { activeBundles: [] }, b: { activeBundles: [] } } }, 'a');
+check('删除预设', Object.keys(removed.config.presets).join(',') === 'b' && removed.removed === 'a');
+let removeError = null;
+try { presets.removePreset({ presets: { a: { activeBundles: [] } } }, 'zzz'); } catch (error) { removeError = error.message; }
+check('删不存在的预设报出已有名字', /没有预设/.test(removeError ?? '') && /a/.test(removeError ?? ''), removeError ?? '');
+
+// ── 10. 面板新接口 ─────────────────────────────────────────────────────────
+
+console.log('\n面板接口（/maintenance /classify /updates /presets）');
 {
   const { apply } = await import(pathToFileURL(path.join(REPO, 'dsh-plugin', 'lib', 'index.js')).href);
   const tmpRoot = fs.mkdtempSync(path.join(tmp, 'gw-'));
@@ -377,6 +447,69 @@ console.log('\n面板接口（/maintenance /classify /updates）');
 
     const forbidden = await call({ url: '/rea-lite/maintenance', remote: '10.0.0.7' });
     check('非回环来源仍被拒', forbidden.status === 403, String(forbidden.status));
+
+    // ── 预设（/presets） ──
+    const stateBefore = await call({ url: '/rea-lite/state' });
+    check('状态里带出预设列表（初始为空）', Array.isArray(stateBefore.payload?.presets) && stateBefore.payload.presets.length === 0, JSON.stringify(stateBefore.payload?.presets));
+
+    const savedPreset = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'save', name: '常用档', note: '只看这两个族' } });
+    check('POST /presets save → 200', savedPreset.status === 200 && savedPreset.payload?.saved === true, savedPreset.payload?.error ?? '');
+    const presetRow = savedPreset.payload?.state?.presets?.find((entry) => entry.name === '常用档');
+    // 面板打开时勾选是空的（activeBundles: []），所以这个预设是「仅元工具」档。
+    check('预设出现在状态里（按当前勾选拍取）', presetRow !== undefined && JSON.stringify(presetRow.activeBundles) === JSON.stringify([]), JSON.stringify(presetRow));
+    check('预设记下备注与保存时间', presetRow?.note === '只看这两个族' && typeof presetRow?.savedAt === 'string');
+    check('预设被标为当前生效（勾选与裁剪档都一致）', presetRow?.current === true);
+    const fileAfterPreset = JSON.parse(fs.readFileSync(gwConfig, 'utf8'));
+    check('预设写进 config.presets', Array.isArray(fileAfterPreset.presets?.['常用档']?.activeBundles), JSON.stringify(fileAfterPreset.presets));
+
+    await call({ method: 'POST', url: '/rea-lite/active', body: { bundles: ['nav', 'native'] } });
+    const savedWithBundles = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'save', name: '常用档' } });
+    check('同名保存报出是覆盖', savedWithBundles.status === 200 && savedWithBundles.payload?.replaced === true);
+    const costRow = savedWithBundles.payload?.state?.presets?.find((entry) => entry.name === '常用档');
+    check('预设按快照算出工具数与成本', costRow?.toolCount === 2 && costRow?.tokens > 0, `${costRow?.toolCount} 个 / ${costRow?.tokens} tok`);
+    check('覆盖后不再是当前生效（勾选变了）', costRow?.current === true, String(costRow?.current));
+
+    // 保存勾选不能把预设抹掉（漏写会导致「勾一次就丢光」）。
+    const { loadConfig, saveConfig } = await load('src/config.mjs');
+    const roundTrip = loadConfig();
+    check('读回配置时预设还在', Object.hasOwn(roundTrip.presets ?? {}, '常用档'));
+    saveConfig({ ...roundTrip, activeBundles: ['native'] });
+    check('保存勾选后预设仍在 config.json 里', Object.hasOwn(loadConfig().presets ?? {}, '常用档'));
+
+    await call({ method: 'POST', url: '/rea-lite/active', body: { bundles: [] } });
+    const appliedPreset = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'apply', name: '常用档' } });
+    check('POST /presets apply → 写回勾选', appliedPreset.status === 200 && JSON.stringify(appliedPreset.payload?.state?.activeBundles) === JSON.stringify(['nav', 'native']), JSON.stringify(appliedPreset.payload?.activeBundles));
+    check('读取后该预设在状态里标为当前生效', appliedPreset.payload?.state?.presets?.find((entry) => entry.name === '常用档')?.current === true);
+
+    // 版本漂移：族在、但这一版 REA 一个工具都没有 → 能读，但要标出来。
+    // 用 debug 而不是 capture：上面 /classify 刚把 inspect_pcap_reassembly 追加进 capture，
+    // 那个族在这份快照里确实有工具可用了（honest 的判据就该跟着变）。
+    const driftPreset = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'save', name: '漂移档', bundles: ['debug'] } });
+    const driftRow = driftPreset.payload?.state?.presets?.find((entry) => entry.name === '漂移档');
+    check('族在但这一版没有工具 → 标 unavailable', driftRow?.unavailable?.includes('debug'), JSON.stringify(driftRow?.unavailable));
+    check('unavailable 的族仍留在勾选里（不是被丢掉）', driftRow?.applied?.includes('debug'), JSON.stringify(driftRow?.applied));
+
+    // 预设引用的自定义族被删掉：读取时跳过并报 missing，而不是悄悄加载一个空族。
+    await call({ method: 'POST', url: '/rea-lite/custom', body: { id: 'my-re', tools: ['xrefs'] } });
+    await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'save', name: '带自定义组', bundles: ['nav', 'my-re'] } });
+    await call({ method: 'POST', url: '/rea-lite/custom', body: { id: 'my-re', delete: true } });
+    const ghostApply = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'apply', name: '带自定义组' } });
+    check('引用的族已删除 → 读取时跳过并报 missing', ghostApply.status === 200 && ghostApply.payload?.missing?.includes('my-re') && JSON.stringify(ghostApply.payload?.activeBundles) === JSON.stringify(['nav']), JSON.stringify(ghostApply.payload?.missing));
+    check('状态里也标出这个预设引用了不存在的族', ghostApply.payload?.state?.presets?.find((entry) => entry.name === '带自定义组')?.missing?.includes('my-re'));
+
+    const badPresetName = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'save', name: 'a/b', bundles: [] } });
+    check('非法预设名 → 400', badPresetName.status === 400 && /预设名/.test(badPresetName.payload.error), badPresetName.payload.error);
+    const unknownBundlePreset = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'save', name: 'x', bundles: ['nope'] } });
+    check('预设引用未知族 → 400', unknownBundlePreset.status === 400 && /未知功能族/.test(unknownBundlePreset.payload.error), unknownBundlePreset.payload.error);
+    const missingPreset = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'apply', name: '不存在' } });
+    check('读取不存在的预设 → 400 并列出已有', missingPreset.status === 400 && /没有预设/.test(missingPreset.payload.error), missingPreset.payload.error);
+    const badPresetAction = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'rm-rf', name: 'x' } });
+    check('未知动作 → 400 且列出可用', badPresetAction.status === 400 && /可用/.test(badPresetAction.payload.error), badPresetAction.payload.error);
+
+    const deletedPreset = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'delete', name: '常用档' } });
+    check('删除预设 → 200 且从状态里消失', deletedPreset.status === 200 && !deletedPreset.payload?.state?.presets?.some((entry) => entry.name === '常用档'), deletedPreset.payload?.error ?? '');
+    const deleteMissing = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'delete', name: '常用档' } });
+    check('重复删除 → 400', deleteMissing.status === 400, deleteMissing.payload?.error);
   } finally {
     if (originalEnv === undefined) delete process.env.REA_LITE_CONFIG;
     else process.env.REA_LITE_CONFIG = originalEnv;

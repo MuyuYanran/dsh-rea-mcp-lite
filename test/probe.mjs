@@ -191,6 +191,45 @@ try {
     customNames.join(', '),
   );
   await client.request('tools/call', { name: 'bundles', arguments: { action: 'set', bundles: [] } });
+
+  // 11. 命名预设：把当前这套存下来 → 切走 → 一键切回（模型侧就是 save-preset / load-preset）
+  await client.request('tools/call', { name: 'bundles', arguments: { action: 'set', bundles: ['nav', 'evidence'] } });
+  const presetSaved = await client.request('tools/call', {
+    name: 'bundles',
+    arguments: { action: 'save-preset', preset: 'probe-preset', note: 'probe 用' },
+  });
+  const presetSavedText = textOf(presetSaved.result);
+  check('save-preset 存下当前勾选', !presetSaved.result?.isError && presetSavedText.includes('probe-preset'), presetSavedText.split('\\n')[0] ?? '');
+  const presetFile = JSON.parse(fs.readFileSync(TEST_CONFIG, 'utf8'));
+  check(
+    '预设落进 config.presets（勾选与裁剪档都在）',
+    JSON.stringify(presetFile.presets?.['probe-preset']?.activeBundles) === JSON.stringify(['nav', 'evidence']) && typeof presetFile.presets?.['probe-preset']?.lite === 'string',
+    JSON.stringify(presetFile.presets?.['probe-preset'] ?? null),
+  );
+  check('写预设没弄丢 child（怎么拉起 REA 不能丢）', presetFile.child !== undefined);
+
+  client.notifications.length = 0;
+  await client.request('tools/call', { name: 'bundles', arguments: { action: 'set', bundles: [] } });
+  const presetLoaded = await client.request('tools/call', { name: 'bundles', arguments: { action: 'load-preset', preset: 'probe-preset' } });
+  const presetLoadedText = textOf(presetLoaded.result);
+  check('load-preset 切回预设的勾选', !presetLoaded.result?.isError && presetLoadedText.includes('nav') && presetLoadedText.includes('evidence'), presetLoadedText.split('\\n')[0] ?? '');
+  const presetChanged = await client.waitForNotification('notifications/tools/list_changed');
+  check('读取预设触发 tools/list_changed（模型手里的列表跟着换）', !!presetChanged);
+  const list6 = await client.request('tools/list');
+  const presetNames = (list6.result?.tools ?? []).map((t) => t.name).filter((n) => !META_NAMES_LIST.includes(n));
+  // 不写死族内工具数（随 REA 版本漂移）：只要求「非空」且「不含别的族的工具」。
+  check(
+    '读取后暴露的正是这两族的工具',
+    presetNames.length > 0 && presetNames.includes('address_name') && !presetNames.includes('inspect_web_page'),
+    `${presetNames.length} 个`,
+  );
+
+  const presetBad = await client.request('tools/call', { name: 'bundles', arguments: { action: 'load-preset', preset: '没有这个预设' } });
+  check('读取不存在的预设 → 报错并列出可用', presetBad.result?.isError === true && textOf(presetBad.result).includes('没有这个预设'), textOf(presetBad.result).split('\\n')[0] ?? '');
+
+  const presetRemoved = await client.request('tools/call', { name: 'bundles', arguments: { action: 'remove-preset', preset: 'probe-preset' } });
+  check('remove-preset 删除预设', !presetRemoved.result?.isError && textOf(presetRemoved.result).includes('已删除'), textOf(presetRemoved.result).split('\\n')[0] ?? '');
+  await client.request('tools/call', { name: 'bundles', arguments: { action: 'set', bundles: [] } });
 } catch (error) {
   check('测试流程未抛错', false, String(error?.stack ?? error));
 } finally {

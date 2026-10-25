@@ -2,6 +2,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { normalizePresets } from './presets.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 export const ROOT = path.resolve(HERE, '..');
@@ -34,6 +35,9 @@ export const DEFAULTS = {
   customBundles: {},
   // 内置族的增量归类：{ <内置族 id>: [工具名…] }。由 classify 写入，只做追加不做替换。
   bundleExtras: {},
+  // 命名预设：{ <名字>: { activeBundles, lite?, shortDescription?, metaTools?, label?, note?, savedAt? } }。
+  // 存「一套可切换的视角」，与 activeBundles（此刻生效的那一套）是两回事。
+  presets: {},
   // 自动更新设置。默认全关：更新会改本机安装，必须由用户显式开启。
   updates: {
     self: { remote: 'origin', checkOnStart: false },
@@ -67,6 +71,8 @@ export function loadConfig() {
     activeBundles: Array.isArray(user.activeBundles) ? user.activeBundles : DEFAULTS.activeBundles,
     customBundles: custom !== null && typeof custom === 'object' && !Array.isArray(custom) ? custom : {},
     bundleExtras: extras !== null && typeof extras === 'object' && !Array.isArray(extras) ? extras : {},
+    // 预设是用户手写/面板写入的存档：坏条目按条丢弃，不让一条垃圾拖垮整页。
+    presets: normalizePresets(user.presets),
     updates: {
       self: { ...DEFAULTS.updates.self, ...(user.updates?.self ?? {}) },
       rea: { ...DEFAULTS.updates.rea, ...(user.updates?.rea ?? {}) },
@@ -82,6 +88,8 @@ export function saveConfig(config) {
     // 追加归类与更新设置要一起保存：面板和执行 classify 的 CLI 都会改它们，
     // 漏了这两项就会出现「刚归类完，下次一保存勾选就全丢」。
     bundleExtras: config.bundleExtras ?? {},
+    // 同理：预设也必须一起写回。漏了它，用户存好的几套视角会在下一次勾选时被抹掉。
+    presets: normalizePresets(config.presets),
     metaTools: config.metaTools,
     lite: config.lite,
     shortDescription: config.shortDescription,

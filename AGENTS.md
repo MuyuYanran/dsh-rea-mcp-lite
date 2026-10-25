@@ -8,7 +8,7 @@
 
 ## 一、这个仓库到底在解决什么问题
 
-REA（`rea-agents`）是一个 MCP 服务器，提供 207 个逆向工程工具（6.7.0）。直连它，模型每次都要吃掉约 53k token 的工具定义。本仓库是一个 **stdio MCP 代理**，把「工具定义」变成按需加载：默认只暴露 5 个元工具（约 541 tok），其余工具随时可通过 `call_tool` 调用。
+REA（`rea-agents`）是一个 MCP 服务器，提供 207 个逆向工程工具（6.7.0）。直连它，模型每次都要吃掉约 53k token 的工具定义。本仓库是一个 **stdio MCP 代理**，把「工具定义」变成按需加载：默认只暴露 5 个元工具（约 624 tok），其余工具随时可通过 `call_tool` 调用。
 
 核心设计取舍是 **按需暴露（progressive disclosure），不是压缩 schema**。理由在 README 的「为什么不是压缩 schema」一节，实测数据是：REA 报文里 91.4% 是 `outputSchema`，而它根本不进模型上下文。别再把精力花在砍 schema 上。
 
@@ -93,6 +93,14 @@ DSH 内置客户端会自动协商到这个版本。代理必须满足（否则�
 
 `effectiveBundles(custom, extras)` 依次合并：内置族 → 自定义族 → 追加归类。让用户改写内置族会在升级时产生难以解释的漂移；自定义族是用户自己的视角，同一个工具可以既在 `native` 又在自定义族里（内置族本来就有重叠）。
 
+**第四层是「预设」（`src/presets.mjs`，存进 `config.presets`），和前三层不是同类**：前三层存的是**定义**，预设存的是**选择** —— 勾了哪些族 + `lite`/`shortDescription`/`metaTools` 三档开关，用来一键切回。
+
+- 三条写入口（CLI 的 `preset` 子命令、面板 `POST /rea-lite/presets`、元工具 `bundles` 的 `save-preset`/`load-preset`）**必须共用 presets.mjs 的纯函数**；判断写三遍迟早分叉（归类那边已经踩过一次）。
+- **预设永远不记 `child`**：子进程命令与 env 是本机专属（`JAVA_HOME`、外部工具路径），跟着预设走 = 把一台机器的路径读到另一台上。
+- 读取时**引用的族不存在就跳过并报 `missing`**，族在但这一版 REA 没有它的工具则报 `unavailable` —— 两者用户要做的事不同，别合成一个数。
+- `saveConfig` 必须一起写回 `presets`：漏了它，用户下一次勾选就把存好的几套视角全抹掉（与 `bundleExtras` 同一类坑）。
+- 预设带 `lite` 时，读取会改成本口径：代理会重刷快照并发 `list_changed`，面板会提示数字已变，别把这些当成异常。
+
 ### 7. 自动更新默认全关，写动作必须显式
 
 `src/updates.mjs` + `src/maintenance.mjs` 做三件事：查本仓库（git 远端）、查 REA 本体（npm registry）、算工具覆盖差集。
@@ -134,12 +142,13 @@ DSH 内置客户端会自动协商到这个版本。代理必须满足（否则�
 | `src/lite.mjs` | schema 裁剪与成本口径（`projectTool` / `modelVisibleChars` / `estimateTokens`） | 成本口径必须与 DSH 的 LLM 层一致：只算 name + description + inputSchema |
 | `src/snapshot.mjs` | 工具成本快照生成 | `data/tools-model.json` 是派生数据，可随时重生成 |
 | `src/config.mjs` | 配置读写与默认值 | 加新配置键时同步 `config.example.json`；读写走 `configPath()` 而非 `CONFIG_PATH` |
+| `src/presets.mjs` | 命名预设：名字校验、拍取、读取（含 missing/unavailable）、成本、删除；纯函数 | 三处写入口共用它；预设**不许**记 `child`；`presets` 必须跟着 `saveConfig` 走（见第 6 条） |
 | `src/classify.mjs` | 智能归类：词元稀有度打分、置信度分级、写入 `bundleExtras` | 别退回硬编码关键词表；置信度必须要求领先第二名 |
 | `src/updates.mjs` | 更新检查与应用（git 快进 / npm 升级 / 工具覆盖差集） | 检查必须只读；快进只在干净且无本地提交时执行 |
 | `src/maintenance.mjs` | 把体检/更新/归类/快照串成流水线，CLI 与面板与元工具共用 | 写动作只在这里实现一份，别在入口处复制判断 |
 | `src/probe-client.mjs` | 一次性 REA 会话取 `tools/list`（兼容现代/旧握手） | 现代协议要带 `_meta`；两代握手都要能连 |
-| `src/cli.mjs` | 命令行：`status` / `list` / `use` / `custom` / `snapshot` / `classify` / `check` / `doctor` / `update-self` / `update-rea` | |
-| `dsh-plugin/` | DSH 设置页（宿主 + 客户端两半），也是发布到 npm 的包 | 客户端的幂等守卫用 `Symbol.for`，不能用模块级 `Symbol()`（HMR 会重复求值）；`gateway/` 与 `LICENSE` 是 prepack 生成物，别手改（见第 9 条） |
+| `src/cli.mjs` | 命令行：`status` / `list` / `use` / `custom` / `preset` / `snapshot` / `classify` / `check` / `doctor` / `update-self` / `update-rea` | |
+| `dsh-plugin/` | DSH 设置页（宿主 + 客户端两半），也是发布到 npm 的包 | 客户端的幂等守卫用 `Symbol.for`，不能用模块级 `Symbol()`（HMR 会重复求值）；**新增 `useState` 一律追加在 `ReaLitePage` 末尾**（`test/panel-render.test.mjs` 按位置索引 hook 槽位，插在中间会让后面所有槽位错位）；`gateway/` 与 `LICENSE` 是 prepack 生成物，别手改（见第 9 条） |
 | `test/` | 见下节 | |
 | `probe/` | 推导文档里那些数字的一次性分析脚本 | 大体积产物已 gitignore |
 
@@ -150,10 +159,10 @@ DSH 内置客户端会自动协商到这个版本。代理必须满足（否则�
 ## 四、验收：七个脚本，职责不重叠
 
 ```bash
-node test/plugin.test.mjs    # 90 项：假 Cordis 上下文驱动面板 API + 渲染设置页（不起 REA）
-node test/maintenance.test.mjs # 81 项：归类打分、追加归类、工具覆盖、版本比较、临时真仓库的 git 快进、面板新接口
-node test/panel-render.test.mjs # 26 项：最小 React 运行时重渲染整页（plugin.test.mjs 只覆盖首屏）
-node test/probe.mjs          # 19 项：真代理 + 真 REA，握手/元工具/转发/热加载/自定义族
+node test/plugin.test.mjs    # 91 项：假 Cordis 上下文驱动面板 API + 渲染设置页（不起 REA）
+node test/maintenance.test.mjs # 136 项：归类打分、追加归类、工具覆盖、版本比较、临时真仓库的 git 快进、预设、面板新接口
+node test/panel-render.test.mjs # 37 项：最小 React 运行时重渲染整页（plugin.test.mjs 只覆盖首屏）
+node test/probe.mjs          # 27 项：真代理 + 真 REA，握手/元工具/转发/热加载/自定义族/预设
 node test/reload-child.mjs   # 6 项：改 child.env → 重启 → 重新握手 → 重取工具 → 通知客户端
 node test/check-config.mjs   # 用真实 config.json 拉起 REA，确认全部工具可达
 node e2e-check.mjs           # 9 项：真实代理 → 真实 REA → 真实外部二进制
@@ -189,6 +198,8 @@ node e2e-check.mjs           # 9 项：真实代理 → 真实 REA → 真实外
 | REA 升级后出现「未归族」工具 | 族清单是静态的 | `node src/cli.mjs classify`，高置信度 `--apply` |
 | `update-rea --apply` 后工具列表还是旧的 | 子进程没重启 | 代理自己会重启；面板/CLI 单独跑时需重启 DSH 或让代理重连 |
 | 面板「更新与体检」结论显示「无法检查：这个目录不是 git 仓库」 | 网关目录不在 git 仓库里（plugin 的 root 指错） | 检查插件行 `config.root` / `REA_LITE_ROOT` |
+| 读取预设后提示「引用的族已不存在」 | 预设里的自定义组被删了，或预设是从别的机器拷来的 | 正常行为：读取时跳过它；重建那个组，或按当前勾选重存一次预设 |
+| 保存勾选后预设全没了 | `saveConfig` 漏写 `presets`（见第 6 条） | 检查 `src/config.mjs` 的 `saveConfig` 是否带上 `presets` |
 
 ---
 

@@ -5,12 +5,14 @@
 > 把 [REA](https://www.npmjs.com/package/rea-agents) 的逆向工程 MCP 工具全部收进 **5 个元工具 + 按需加载的功能族**：
 > 默认只摆出元工具、省下绝大部分工具上下文，其余工具**一个都没丢**，随时检索与调用。
 > 功能族支持**运行时热切换**（`notifications/tools/list_changed`），无需重启 DSH。
+> 常用组合可以存成**命名预设**，之后一键切回。
 > 自带**更新与体检**：查本仓库与 REA 上游更新、把 REA 新增工具自动归类、提醒本机缺哪些工具。
 
 A tiny zero-dependency MCP stdio proxy that turns REA's full tool set into a progressive-disclosure
 gateway: a handful of meta-tools by default, every tool still searchable and callable, with
-hot-swappable tool bundles and no DSH restart. Ships update checks (this repo + REA upstream),
-automatic bundle classification for new tools, and coverage hints for missing ones.
+hot-swappable tool bundles (and named presets you can switch back to in one call) and no DSH restart.
+Ships update checks (this repo + REA upstream), automatic bundle classification for new tools, and
+coverage hints for missing ones.
 
 > 具体工具数、token 与省下的百分比都是 **REA 版本相关**的数字，写在下面的「效果」表里并标注了实测版本；
 > 换版本后以 `node src/cli.mjs snapshot` 重跑的结果为准。
@@ -23,7 +25,7 @@ automatic bundle classification for new tools, and coverage hints for missing on
 
 | 场景 | 模型可见工具 | 约 token |
 | --- | --- | --- |
-| **默认（仅元工具）** | 5 | **541** |
+| **默认（仅元工具）** | 5 | **624** |
 | 加载全部（经本代理裁剪后） | 212 | 26.9k |
 | 不用本代理（直连 REA，模型可见部分） | 207 | ~53k |
 
@@ -138,7 +140,7 @@ cp config.example.json config.json   # Windows: Copy-Item config.example.json co
 | `search_tools` | 在全部 207 个工具里搜（名字 + 说明），返回一句话用途、必填参数、所属族、是否已加载 |
 | `tool_schema` | 取某工具的**完整** inputSchema（未裁剪），用于精确构造复杂参数 |
 | `call_tool` | 调用**任意**工具（含未加载族的）：`{"tool":"analyze_function","arguments":{"procedure":"main"}}` |
-| `bundles` | 列出/切换功能族：`action = list \| activate \| deactivate \| set` |
+| `bundles` | 列出/切换功能族，以及管理命名预设：`action = list \| activate \| deactivate \| set \| save-preset \| load-preset \| remove-preset` |
 | `maintenance` | 网关体检与更新：查本仓库/REA 新版、找未归族的新工具并归类、刷新成本快照。默认只读，`action=classify/update-*` 才改本机 |
 
 **不需要先加载功能族就能调用工具** —— 功能族只决定"先把哪些工具的说明书摆到桌面上"。
@@ -230,9 +232,53 @@ node src/cli.mjs custom remove web-audit
 - 自定义组与内置族**并列**，不改写内置族；同一个工具可以同时属于内置族和多个自定义组。
 - 保存后与改 `activeBundles` 一样走配置监听，约一秒热切换。
 
+## 预设（保存与读取常用组合）
+
+自定义分组解决的是「这几个工具算一组」，预设解决的是「这一套勾选 + 这一档裁剪，我要反复切回来」。
+
+```bash
+node src/cli.mjs preset                        # 列出预设（● = 当前生效的那套）
+node src/cli.mjs preset save 原生深挖 --note "native + evidence"    # 存下当前勾选与裁剪档
+node src/cli.mjs preset save 安卓动态 --bundles android,debug,nav   # 也可以显式指定族
+node src/cli.mjs preset show 原生深挖
+node src/cli.mjs preset use 原生深挖           # 一键切回
+node src/cli.mjs preset remove 原生深挖
+```
+
+设置页的「预设」区块同样能做：填个名字 → 「存下当前勾选」；每条预设上有「读取」「删除」，当前生效的那条会被标出来。模型侧也能用（`bundles` 元工具，所以「把现在这套存下来，等下切回来」可以直接说）：
+
+```json
+{"action":"save-preset","preset":"原生深挖","note":"native + evidence"}
+{"action":"load-preset","preset":"原生深挖"}
+```
+
+一个预设记录：**勾选了哪些族** + `lite` / `shortDescription` / `metaTools` 三档开关 + 备注与保存时间。读取它就是把这几个键写回 `config.json`，随后照旧热切换（约一秒）。
+
+三条设计取舍：
+
+- **不记 `child`**。子进程命令与环境变量是本机专属（`JAVA_HOME`、外部工具路径），跟着预设走等于把一台机器的路径读到另一台上。
+- **引用的族没了就跳过并报出来**。预设引用的自定义组被删掉、或预设来自另一台机器时，读取只加载存在的族，并明确列出跳过了哪些；不会静默加载一个空的组。
+- **裁剪档一起存**。`lite` 档位会改变每个工具定义的长度，所以成本口径跟着变；面板会提示该重新生成快照。
+
+配置里的样子：
+
+```json
+{
+  "presets": {
+    "原生深挖": {
+      "activeBundles": ["nav", "native", "evidence"],
+      "lite": "mild", "shortDescription": true, "metaTools": true,
+      "note": "native + evidence", "savedAt": "2026-10-25T05:11:14.406Z"
+    }
+  }
+}
+```
+
+预设名是最长 48 个字符的自由文本（中文可以），不能含 `\ / : * ? " < > |` 或控制字符——它要能安全地当 JSON 键、也能原样传给命令行；同名保存即覆盖。
+
 ## 三种用法
 
-**A. 默认网关模式（推荐）** — 只挂 5 个元工具（约 541 tok），一切靠 `call_tool` 打：
+**A. 默认网关模式（推荐）** — 只挂 5 个元工具（约 624 tok），一切靠 `call_tool` 打：
 ```bash
 node src/cli.mjs none
 ```
@@ -252,12 +298,13 @@ node src/cli.mjs list      # 带实时 token 估算的功能族一览
 node src/cli.mjs status    # 当前配置
 ```
 
-## 四种开关方式（都热更新，无需重启 DSH）
+## 五种开关方式（都热更新，无需重启 DSH）
 
 1. **设置页点选**（最省事，见下一节）——「设置 → REA 工具」勾选功能族，实时看到每个族的 token 成本与实测变化。
 2. **直接对模型说** —— "把 web 和 js 族加载上" → 模型调 `bundles {"action":"activate","bundles":["web","js"]}` → 代理发 `list_changed` → DSH 当场换工具集。
 3. **改 `config.json`** —— 代理 `fs.watch` 该文件，约 150ms 内生效。
 4. **CLI** —— `node src/cli.mjs use web js`（本质就是改 config.json）。
+5. **切预设** —— 面板「预设 → 读取」、`node src/cli.mjs preset use <名>`，或让模型调 `bundles {"action":"load-preset","preset":"<名>"}`；一次把勾选与裁剪档都换回来。
 
 运行时切换会写回 `config.json`（`persistRuntimeSwitch: true`），重启后保持。
 
@@ -321,6 +368,14 @@ mcp__rea__maintenance { "action": "snapshot" }                   # 刷新快照
 mcp__rea__maintenance { "action": "update-rea", "apply": true }    # 升级（会重启子进程并重新握手）
 ```
 
+预设也在元工具里（`bundles`），所以「这套组合存下来，待会儿切回来」可以直接让模型做：
+
+```
+mcp__rea__bundles { "action": "save-preset", "preset": "原生深挖", "note": "native + evidence" }
+mcp__rea__bundles { "action": "load-preset", "preset": "原生深挖" }
+mcp__rea__bundles { "action": "remove-preset", "preset": "原生深挖" }
+```
+
 ## 设置页（可选，推荐）
 
 仓库里的 `dsh-plugin/` 是一个 DSH 插件（细节见 [dsh-plugin/README.md](dsh-plugin/README.md)），装好后在 **设置 → REA 工具** 多出一页：
@@ -330,6 +385,7 @@ mcp__rea__maintenance { "action": "update-rea", "apply": true }    # 升级（�
 - **风险与版本标记**：`debug`/`capture`/`formats` 标「需目标环境」；当前 REA 版本没有的族标「当前 REA 版本无此族」（而不是让你以为勾了没反应）。
 - **会话内实测**：DSH 工具注册表里真实存在的 `mcp__rea__*` 数量与字符数 —— 保存后约 1 秒跟随变化，用来确认热切换真的生效。
 - 状态灯显示 rea 服务器是 已连接 / 已在 MCP 管理里停用 / 启用但未连上；被停用时额外给出"去 MCP 管理启用"的指引。
+- **预设区块**：填名字存下当前勾选与裁剪档，每条预设都有「读取」「删除」，当前生效的那条会被标出来；预设引用的族若已不存在（自定义组被删/预设来自别的机器），会当场标红而不是静默失效。
 - 「查工具属于哪个族」搜索框：在 207 个工具里按名字或说明搜。
 
 ```bash
@@ -388,6 +444,7 @@ dsh plugin --profile desktop add "https://github.com/MuyuYanran/dsh-rea-mcp-lite
 | `toolCallTimeoutMs` | `600000` | 单次工具调用超时（反编译类工具有时会跑很久） |
 | `customBundles` | `{}` | 用户自定义族：`{ id: { label?, hint?, tools: [...] } }` |
 | `bundleExtras` | `{}` | 自动归类追加到内置族的工具：`{ "capture": ["inspect_x"] }`（只追加，不替换） |
+| `presets` | `{}` | 命名预设：`{ "名字": { activeBundles, lite?, shortDescription?, metaTools?, note?, savedAt? } }`（不记 `child`） |
 | `updates.self` | `{ remote: "origin", checkOnStart: false }` | 本仓库更新；`autoApply: true` 才会在启动时自动快进 |
 | `updates.rea` | `{ registry: "https://registry.npmjs.org/rea-agents", checkOnStart: false }` | REA 本体更新；`autoApply: true` 才会在启动时自动升级 |
 | `child` | — | 怎么拉起真正的 REA：`command` / `args` / `env` |
@@ -402,10 +459,10 @@ dsh plugin --profile desktop add "https://github.com/MuyuYanran/dsh-rea-mcp-lite
 ## 自检
 
 ```bash
-node test/probe.mjs         # 19 项集成测试：握手 / 元工具 / 搜索 / 转发 / 热加载 / 热卸载 / 全量 / 自定义族
-node test/plugin.test.mjs   # 90 项插件自检：假 Cordis 上下文驱动面板 API + 渲染设置页
-node test/maintenance.test.mjs # 81 项：归类打分 / 追加归类 / 工具覆盖 / 版本比较 / 临时真仓库的 git 快进 / 面板新接口
-node test/panel-render.test.mjs # 26 项：用最小 React 运行时真的重渲染设置页（含「更新与体检」各分支）
+node test/probe.mjs         # 27 项集成测试：握手 / 元工具 / 搜索 / 转发 / 热加载 / 热卸载 / 全量 / 自定义族 / 预设
+node test/plugin.test.mjs   # 91 项插件自检：假 Cordis 上下文驱动面板 API + 渲染设置页
+node test/maintenance.test.mjs # 136 项：归类打分 / 追加归类 / 工具覆盖 / 版本比较 / 临时真仓库的 git 快进 / 预设 / 面板新接口
+node test/panel-render.test.mjs # 37 项：用最小 React 运行时真的重渲染设置页（含「更新与体检」「预设」各分支）
 node test/reload-child.mjs  # 6 项子进程热重启：改 child.env → 重启 REA → 重新握手 → 重取工具列表 → 通知客户端
 node test/check-config.mjs  # 用真实 config.json 拉起 REA，确认全部工具可达
 node e2e-check.mjs          # 9 项外部工具验收：真实代理 → 真实 REA → 真实 objdump/rizin/tshark/WABT/SQLite/Frida/Cutter

@@ -7,6 +7,7 @@
 > pay a small fraction of the tool context, while **none of the tools are lost** — every one stays
 > searchable and callable.
 > Bundles **hot-swap at runtime** (`notifications/tools/list_changed`) — no DSH restart.
+> Favourite combinations can be saved as **named presets** and switched back in one call.
 > Ships **update checks and health checks**: this repo against its remote, REA against npm, and
 > automatic classification of tools REA added after your bundle list was written.
 
@@ -25,7 +26,7 @@ Measured on **REA 6.7.0** (`REA_MCP_INPUT_SCHEMA_PROFILE=compact`, `lite: "mild"
 
 | Scenario | Tools visible to the model | Approx. tokens |
 | --- | --- | --- |
-| **Default (meta-tools only)** | 5 | **541** |
+| **Default (meta-tools only)** | 5 | **624** |
 | Everything loaded (after this proxy's trimming) | 212 | 26.9k |
 | Without this proxy (direct REA, model-visible part) | 207 | ~53k |
 
@@ -147,7 +148,7 @@ consistent with what REA's official skill references):
 | `search_tools` | Search all 207 tools by name + description; returns one-line purpose, required parameters, owning bundle, and whether it is currently loaded |
 | `tool_schema` | Fetch a tool's **complete**, untrimmed inputSchema — use it to construct complex arguments precisely |
 | `call_tool` | Call **any** tool, including tools in unloaded bundles: `{"tool":"analyze_function","arguments":{"procedure":"main"}}` |
-| `bundles` | List/switch bundles: `action = list \| activate \| deactivate \| set` |
+| `bundles` | List/switch bundles, and manage named presets: `action = list \| activate \| deactivate \| set \| save-preset \| load-preset \| remove-preset` |
 | `maintenance` | Gateway health and updates: check this repo / REA versions, find newly added unclassified tools and classify them, refresh the cost snapshot. Read-only by default; only `action=classify/update-*` changes the machine |
 
 **You do not need to load a bundle to call a tool** — bundles only decide *whose manual is already
@@ -256,9 +257,65 @@ Constraints:
   built-in bundle and to several custom bundles at once.
 - Saving goes through the same config watcher as `activeBundles`, so it hot-swaps in about a second.
 
+## Presets (save and load your favourite combinations)
+
+Custom bundles answer "these tools belong together"; presets answer "this exact selection plus this
+schema profile is something I keep switching back to".
+
+```bash
+node src/cli.mjs preset                        # list presets (● marks the one in effect)
+node src/cli.mjs preset save native-deep --note "native + evidence"   # capture current selection
+node src/cli.mjs preset save android-live --bundles android,debug,nav  # or name the bundles explicitly
+node src/cli.mjs preset show native-deep
+node src/cli.mjs preset use native-deep        # switch back in one command
+node src/cli.mjs preset remove native-deep
+```
+
+The settings page has the same thing in a "Presets" section: type a name → "Save current selection";
+each preset row has "Load" and "Delete", and the one currently in effect is tagged. The model can do
+it too (via the `bundles` meta-tool), so "save this setup, I'll want it back later" just works:
+
+```json
+{"action":"save-preset","preset":"native-deep","note":"native + evidence"}
+{"action":"load-preset","preset":"native-deep"}
+```
+
+A preset records **which bundles are checked** plus the `lite` / `shortDescription` / `metaTools`
+switches, a note and a timestamp. Loading it writes those keys back to `config.json`, and the usual
+hot-swap follows (about a second).
+
+Three deliberate choices:
+
+- **`child` is never stored.** The child command and environment are machine-specific (`JAVA_HOME`,
+  external tool paths); letting them travel inside a preset means reading one machine's paths into
+  another.
+- **Referenced bundles that no longer exist are skipped and reported.** If a custom bundle was
+  deleted, or the preset came from another machine, loading brings in what exists and lists what it
+  skipped — it never silently loads an empty bundle.
+- **The schema profile is stored with it.** `lite` changes the length of every tool definition, so the
+  cost basis moves with it; the panel tells you when the snapshot needs regenerating.
+
+What it looks like in the config:
+
+```json
+{
+  "presets": {
+    "native-deep": {
+      "activeBundles": ["nav", "native", "evidence"],
+      "lite": "mild", "shortDescription": true, "metaTools": true,
+      "note": "native + evidence", "savedAt": "2026-10-25T05:11:14.406Z"
+    }
+  }
+}
+```
+
+A preset name is free text up to 48 characters (non-ASCII is fine), and may not contain
+`\ / : * ? " < > |` or control characters — it has to be a safe JSON key and a safe command-line
+argument. Saving under an existing name overwrites it.
+
 ## Three ways to run it
 
-**A. Gateway mode (recommended)** — only the 5 meta-tools (~541 tok), everything via `call_tool`:
+**A. Gateway mode (recommended)** — only the 5 meta-tools (~624 tok), everything via `call_tool`:
 ```bash
 node src/cli.mjs none
 ```
@@ -279,7 +336,7 @@ node src/cli.mjs list      # bundle overview with live token estimates
 node src/cli.mjs status    # current configuration
 ```
 
-## Four ways to switch (all hot — no DSH restart)
+## Five ways to switch (all hot — no DSH restart)
 
 1. **Tick in the settings page** (easiest; see below) — "Settings → REA tools", with live token cost
    per bundle and a measured before/after check.
@@ -288,6 +345,9 @@ node src/cli.mjs status    # current configuration
    swaps the tool set on the spot.
 3. **Edit `config.json`** — the proxy `fs.watch`es the file; changes apply within ~150 ms.
 4. **CLI** — `node src/cli.mjs use web js` (which is really just editing `config.json`).
+5. **Load a preset** — "Presets → Load" in the panel, `node src/cli.mjs preset use <name>`, or let the
+   model call `bundles {"action":"load-preset","preset":"<name>"}`; it swaps the selection and the
+   schema profile in one go.
 
 Runtime switches are written back to `config.json` (`persistRuntimeSwitch: true`), so they survive a
 restart.
@@ -371,6 +431,15 @@ mcp__rea__maintenance { "action": "snapshot" }                   # refresh the c
 mcp__rea__maintenance { "action": "update-rea", "apply": true }    # upgrade (restarts the child and re-handshakes)
 ```
 
+Presets are on the meta-tool too (via `bundles`), so "save this setup, I'll want it back later" is
+something you can simply say:
+
+```
+mcp__rea__bundles { "action": "save-preset", "preset": "native-deep", "note": "native + evidence" }
+mcp__rea__bundles { "action": "load-preset", "preset": "native-deep" }
+mcp__rea__bundles { "action": "remove-preset", "preset": "native-deep" }
+```
+
 ## Settings page (optional, recommended)
 
 `dsh-plugin/` in this repo is a DSH plugin (details in [dsh-plugin/README.md](dsh-plugin/README.md)).
@@ -388,6 +457,10 @@ Once installed, **Settings → REA tools** gains a page:
   "did the hot swap actually happen".
 - A status light shows whether the rea server is connected / disabled in MCP management / enabled but
   not connected, and points you at MCP management when it is disabled.
+- A **Presets** section: type a name to capture the current selection and schema profile; every preset
+  row has Load and Delete, and the one in effect is tagged. A preset whose referenced bundles have
+  disappeared (deleted custom bundle, or a preset copied from another machine) is flagged on the spot
+  instead of silently doing nothing.
 - A "which bundle owns this tool" search box, over 207 tools by name or description.
 
 ```bash
@@ -455,6 +528,7 @@ machine environment variable too, so the settings page and the gateway read and 
 | `toolCallTimeoutMs` | `600000` | Per-call timeout (decompiler-style tools can run for a long time) |
 | `customBundles` | `{}` | User-defined bundles: `{ id: { label?, hint?, tools: [...] } }` |
 | `bundleExtras` | `{}` | Tools auto-classified into built-in bundles: `{ "capture": ["inspect_x"] }` (additive, never replacing) |
+| `presets` | `{}` | Named presets: `{ "name": { activeBundles, lite?, shortDescription?, metaTools?, note?, savedAt? } }` (never stores `child`) |
 | `updates.self` | `{ remote: "origin", checkOnStart: false }` | This repo's updates; `autoApply: true` fast-forwards at startup |
 | `updates.rea` | `{ registry: "https://registry.npmjs.org/rea-agents", checkOnStart: false }` | REA's own updates; `autoApply: true` upgrades at startup |
 | `child` | — | How to launch the real REA: `command` / `args` / `env` |
@@ -475,10 +549,10 @@ machine environment variable too, so the settings page and the gateway read and 
 ## Verifying it yourself
 
 ```bash
-node test/probe.mjs         # 19 integration tests: handshake / meta-tools / search / forwarding / hot load / hot unload / everything / custom bundles
-node test/plugin.test.mjs   # 90 plugin checks: fake Cordis context drives the panel API + renders the settings page
-node test/maintenance.test.mjs # 81 checks: classification scoring / extras merge / tool coverage / version comparison / git fast-forward on a temporary real repo / new panel routes
-node test/panel-render.test.mjs # 26 checks: re-renders the whole settings page on a minimal React runtime (every "Updates & health" branch)
+node test/probe.mjs         # 27 integration tests: handshake / meta-tools / search / forwarding / hot load / hot unload / everything / custom bundles / presets
+node test/plugin.test.mjs   # 91 plugin checks: fake Cordis context drives the panel API + renders the settings page
+node test/maintenance.test.mjs # 136 checks: classification scoring / extras merge / tool coverage / version comparison / git fast-forward on a temporary real repo / presets / new panel routes
+node test/panel-render.test.mjs # 37 checks: re-renders the whole settings page on a minimal React runtime (every "Updates & health" and "Presets" branch)
 node test/reload-child.mjs  # 6 child hot-restart checks: change child.env → restart REA → re-handshake → refetch tools → notify client
 node test/check-config.mjs  # starts REA with the real config.json and confirms every tool is reachable
 node e2e-check.mjs          # 9 external-tool checks: real proxy → real REA → real objdump/rizin/tshark/WABT/SQLite/Frida/Cutter

@@ -175,6 +175,8 @@ try {
   check('GET /state → 200', stateRes.status === 200);
   check('读到临时配置文件', state.configPath === tempConfig, state.configPath);
   check('功能族数量与 bundles.mjs 一致', state.bundles.length === Object.keys(BUNDLES).length, `${state.bundles.length} 个: ${state.bundles.map((b) => b.id).join(',')}`);
+  // 预设列表：旧宿主半没这个字段时浏览器半要退化成空列表，接口这层必须是数组。
+  check('状态里带出预设列表（为空时是空数组）', Array.isArray(state.presets) && state.presets.length === 0, JSON.stringify(state.presets));
 
   // 族内工具清单：面板靠它做「看族内工具」展开，缺了就只能显示数字。
   const navBundle = state.bundles.find((b) => b.id === 'nav');
