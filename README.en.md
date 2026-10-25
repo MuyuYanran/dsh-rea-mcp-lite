@@ -443,7 +443,22 @@ mcp__rea__bundles { "action": "remove-preset", "preset": "native-deep" }
 ## Settings page (optional, recommended)
 
 `dsh-plugin/` in this repo is a DSH plugin (details in [dsh-plugin/README.md](dsh-plugin/README.md)).
-Once installed, **Settings → REA tools** gains a page:
+Once installed, **Settings → REA tools** gains a page.
+
+The page is split into **six sections** (a top-level tab bar), and each section brings its own
+sub-menu, filters and pagination — 200+ tools, 12 bundles and any number of presets no longer pile
+up in one long scroll:
+
+| Section | What it holds | Sub-menu / filters / paging |
+| --- | --- | --- |
+| **Overview** | What the model sees right now: meta-tool cost, cost of the ticked bundles, the total and how much it saves, the measured in-session values; plus a **context breakdown bar** (used vs saved) and quick actions | — |
+| **Bundles** | Tick bundles; each is labelled with tool count and approximate tokens | Sub-menu: all / built-in / custom; chips: all / loaded / not loaded / needs setup; a name filter; 6 per page |
+| **Groups** | Custom bundles (visual editor: every tool on the left, the selection on the right, drag or tick) | — |
+| **Presets** | Named presets: capture the current selection and schema profile, load it back in one click | Sub-menu: all presets / by time saved; a name filter; 5 per page |
+| **Tools** | Search tools by name or description and see which bundles own them and what they cost | 12 per page |
+| **Updates & health** | Conclusions for this repo / the REA package / tool coverage, the write actions, and the auto-update switches | "query REA live" toggle |
+
+Per section:
 
 - Checkboxes switch bundles, each labelled with tool count and approximate tokens; the header totals
   "meta-tools + ticked bundles" and shows the percentage saved against loading everything.

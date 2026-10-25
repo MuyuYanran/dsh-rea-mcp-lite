@@ -154,6 +154,11 @@ DSH 内置客户端会自动协商到这个版本。代理必须满足（否则�
 
 `dsh-plugin/lib/index.js` 里有个点容易忘：面板走的是「读取 config → 改 → 写回」的流程，写回时**必须保留 `child` 整块**，否则面板一保存就把外部工具路径抹掉。`saveConfig` 会处理，但别在别处绕开它。
 
+设置页客户端半（`dsh-plugin/lib/client.js`）还有两条硬约束：
+
+- **模块级组件不能引用组件内的 `t`**。`t` 是 `ReaLitePage` 的局部变量；`TabBar` / `Segmented` / `Chips` / `Pager` 这些定义在模块作用域，在里面写 `t(...)` 在浏览器里就是 ReferenceError、整页白屏。要用模块级的 `tr()`（它按 `localeRef` 取词）。自检脚本的假 React 会把这个异常吞掉，所以更危险。
+- **新增 `useState` 一律追加在 `ReaLitePage` 末尾**。`test/panel-render.test.mjs` 按位置索引 hook 槽位，插在中间会让后面所有槽位错位（已踩过一次：新增三个 state 后 panel-render 26 项里 11 项红）。
+
 ---
 
 ## 四、验收：七个脚本，职责不重叠
@@ -161,7 +166,7 @@ DSH 内置客户端会自动协商到这个版本。代理必须满足（否则�
 ```bash
 node test/plugin.test.mjs    # 91 项：假 Cordis 上下文驱动面板 API + 渲染设置页（不起 REA）
 node test/maintenance.test.mjs # 136 项：归类打分、追加归类、工具覆盖、版本比较、临时真仓库的 git 快进、预设、面板新接口
-node test/panel-render.test.mjs # 37 项：最小 React 运行时重渲染整页（plugin.test.mjs 只覆盖首屏）
+node test/panel-render.test.mjs # 57 项：最小 React 运行时重渲染整页（plugin.test.mjs 只覆盖首屏）
 node test/probe.mjs          # 27 项：真代理 + 真 REA，握手/元工具/转发/热加载/自定义族/预设
 node test/reload-child.mjs   # 6 项：改 child.env → 重启 → 重新握手 → 重取工具 → 通知客户端
 node test/check-config.mjs   # 用真实 config.json 拉起 REA，确认全部工具可达

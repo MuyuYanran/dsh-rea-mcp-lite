@@ -6,6 +6,19 @@
 dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 ```
 
+## 页面结构
+
+设置页按**六个子菜单分区**（一级标签栏），每个分区里还有二级子菜单、筛选与分页：
+
+| 分区 | 内容 | 子菜单 / 筛选 / 分页 |
+| --- | --- | --- |
+| 概览 | 此刻模型看到什么：元工具成本、已勾选族成本、合计与省下多少、会话内实测值；上下文构成条与快捷操作 | — |
+| 功能族 | 勾选功能族，展开看族内工具 | 全部/内置/自定义；全部/已加载/未加载/需环境；名字筛选；每页 6 个 |
+| 分组 | 自定义分组的可视化编辑 | — |
+| 预设 | 命名预设的存下/读取/删除 | 全部预设/按保存时间；名字筛选；每页 5 个 |
+| 工具 | 按名字或说明搜工具 | 每页 12 个 |
+| 更新与体检 | 本仓库/REA/覆盖三块结论、写动作、自动更新开关 | 向 REA 实时查询开关 |
+
 ## 它做什么
 
 - **勾选功能族**（12 个族 + `all`，含 REA 6.5.0+ 新增的 `debug`/`formats`/`capture`）：写回网关的 `config.json`；代理 `fs.watch` 该文件 → 发 `tools/list_changed` → DSH 当场换工具集。
@@ -55,4 +68,4 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 - 只管「加载哪些族」，不管 MCP 服务器的启停 —— 那是「MCP 管理」的事。
 - 只服务回环地址：`/rea-lite/*` 对非 `127.0.0.1`/`::1` 来源一律 403。
 - 只写网关 `config.json` 的这几个字段：`activeBundles`（勾选）、`customBundles`（自定义分组）、`bundleExtras`（归类结果）、`presets`（预设）、`updates`（更新开关）；其余字段原样保留（尤其 `child`）。
-- 自检：`node test/plugin.test.mjs`（91 项，用假 Cordis 上下文驱动真实的 `apply()`）+ `node test/maintenance.test.mjs`（136 项，含预设与其它面板新增接口）+ `node test/panel-render.test.mjs`（37 项，真的重渲染整页）。
+- 自检：`node test/plugin.test.mjs`（91 项，用假 Cordis 上下文驱动真实的 `apply()`）+ `node test/maintenance.test.mjs`（136 项，含预设与其它面板新增接口）+ `node test/panel-render.test.mjs`（57 项，真的重渲染整页，含六个分区与筛选/分页）。

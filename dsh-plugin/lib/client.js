@@ -95,6 +95,40 @@ window.__ModuleLoader__.load({
         presetSavedAt: '保存于',
         presetShape: '裁剪档',
         presetCount: '个族',
+        // ── 导航与分区 ──
+        tabOverview: '概览',
+        tabBundles: '功能族',
+        tabGroups: '分组',
+        tabPresets: '预设',
+        tabTools: '工具',
+        tabMaint: '更新与体检',
+        segAll: '全部',
+        segBuiltin: '内置',
+        segCustom: '自定义',
+        segLoaded: '已加载',
+        segNotLoaded: '未加载',
+        segAllPresets: '全部预设',
+        segSavedAt: '按保存时间',
+        chipAll: '全部',
+        chipActive: '已加载',
+        chipIdle: '未加载',
+        chipRisky: '需环境',
+        chipCustom: '自定义',
+        filterBundlePlaceholder: '按名字筛选功能族…',
+        filterPresetPlaceholder: '按名字筛选预设…',
+        noMatch: '没有匹配项。',
+        pagePrev: '上一页',
+        pageNext: '下一页',
+        pageInfo: '第 {n} / {total} 页',
+        pageTotal: '共 {n} 条',
+        overviewTitle: '当前生效',
+        overviewHint: '这一页是「此刻模型看到什么」：勾选、元工具成本、以及会话内的实测值。',
+        costBreakdown: '上下文构成',
+        costUsed: '已用',
+        costSaved: '省下',
+        quickActions: '快捷操作',
+        bundlesHint2: '勾选即写入 config.json，代理监听文件变化后热切换。',
+        toolsPageHint: '按名字或说明搜工具，并看清它属于哪些族、要花多少上下文。',
         cancel: '取消',
         addToCustom: '加入自定义分组',
         toEnableHint: '去「MCP 管理」把 rea 启用后，这里的勾选才会真正生效。',
@@ -236,6 +270,40 @@ window.__ModuleLoader__.load({
         presetSavedAt: 'saved',
         presetShape: 'schema profile',
         presetCount: 'bundles',
+        // ── Navigation and sections ──
+        tabOverview: 'Overview',
+        tabBundles: 'Bundles',
+        tabGroups: 'Groups',
+        tabPresets: 'Presets',
+        tabTools: 'Tools',
+        tabMaint: 'Updates & health',
+        segAll: 'All',
+        segBuiltin: 'Built-in',
+        segCustom: 'Custom',
+        segLoaded: 'Loaded',
+        segNotLoaded: 'Not loaded',
+        segAllPresets: 'All presets',
+        segSavedAt: 'By time saved',
+        chipAll: 'All',
+        chipActive: 'Loaded',
+        chipIdle: 'Not loaded',
+        chipRisky: 'needs setup',
+        chipCustom: 'Custom',
+        filterBundlePlaceholder: 'Filter bundles by name…',
+        filterPresetPlaceholder: 'Filter presets by name…',
+        noMatch: 'Nothing matches.',
+        pagePrev: 'Previous',
+        pageNext: 'Next',
+        pageInfo: 'Page {n} of {total}',
+        pageTotal: '{n} total',
+        overviewTitle: 'In effect right now',
+        overviewHint: 'What the model sees at this moment: the selection, the meta-tool cost, and the measured values from this session.',
+        costBreakdown: 'Context breakdown',
+        costUsed: 'used',
+        costSaved: 'saved',
+        quickActions: 'Quick actions',
+        bundlesHint2: 'Checking writes config.json; the proxy watches the file and hot-swaps.',
+        toolsPageHint: 'Search tools by name or description, and see which bundles own them and what they cost.',
         cancel: 'Cancel',
         addToCustom: 'Add to custom group',
         toEnableHint: 'Enable rea in MCP manager first — these checkboxes only take effect then.',
@@ -404,7 +472,7 @@ window.__ModuleLoader__.load({
       '.realp-note-warn{color:var(--dsw-alias-state-warn-primary)}',
       '.realp-note-error{color:var(--dsw-alias-state-error-primary)}',
       '.realp-note-ok{color:var(--dsw-alias-state-success-primary)}',
-      '.realp-tools{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);max-height:320px;overflow:auto}',
+      '.realp-tools{border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1);overflow:hidden}',
       '.realp-tool{display:grid;grid-template-columns:minmax(150px,240px) 1fr;gap:12px;padding:7px 12px;border-bottom:1px solid var(--dsw-alias-border-l1)}',
       '.realp-tool:last-child{border-bottom:none}',
       '.realp-tool code{font-size:12px;word-break:break-all}',
@@ -429,6 +497,49 @@ window.__ModuleLoader__.load({
       '.realp-maint-arrow{color:var(--dsw-alias-label-secondary)}',
       '.realp-maint-target{color:var(--dsw-alias-brand-primary)}',
       '.realp-maint-switch{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dsw-alias-label-secondary)}',
+      // ── 导航（子菜单 / 子子菜单 / 分页） ──
+      '.realp-tabbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:2;background:var(--dsw-alias-bg-layer-0,var(--dsw-alias-bg-layer-1));padding:2px 0 0;margin-bottom:-2px}',
+      '.realp-tabbar-items{display:flex;align-items:flex-end;gap:2px;flex-wrap:wrap}',
+      '.realp-tab{appearance:none;background:none;border:0;border-bottom:2px solid transparent;border-radius:6px 6px 0 0;padding:7px 11px;margin-bottom:-1px;color:var(--dsw-alias-label-secondary);font:inherit;font-size:12px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:color .12s ease,border-color .12s ease,background-color .12s ease}',
+      '.realp-tab:hover:not(.realp-tab-on){color:var(--dsw-alias-label-primary);background:var(--dsw-alias-bg-layer-1)}',
+      '.realp-tab-on{color:var(--dsw-alias-brand-primary);border-bottom-color:var(--dsw-alias-brand-primary)}',
+      '.realp-tab:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:-2px}',
+      '.realp-tab-badge{display:inline-flex;align-items:center;justify-content:center;min-width:17px;height:17px;padding:0 5px;border-radius:9px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary);font-size:10px;font-weight:600}',
+      '.realp-tab-badge-on{background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-label-primary-inverted,#fff)}',
+      '.realp-tabbar-status{color:var(--dsw-alias-label-secondary);font-size:11px;padding-bottom:6px}',
+      '.realp-seg{display:inline-flex;align-items:center;gap:2px;padding:2px;border-radius:9px;background:var(--dsw-alias-bg-layer-2);border:1px solid var(--dsw-alias-border-l1);max-width:100%;flex-wrap:wrap}',
+      '.realp-seg-item{appearance:none;background:none;border:0;border-radius:7px;padding:4px 10px;color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;font-weight:500;cursor:pointer;display:inline-flex;align-items:center;gap:5px}',
+      '.realp-seg-item:hover{color:var(--dsw-alias-label-primary)}',
+      '.realp-seg-item-on{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);box-shadow:0 1px 2px rgba(0,0,0,.08)}',
+      '.realp-seg-badge{display:inline-flex;align-items:center;justify-content:center;min-width:15px;height:15px;padding:0 4px;border-radius:8px;background:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-1));color:var(--dsw-alias-label-secondary);font-size:10px}',
+      '.realp-chips{display:flex;align-items:center;gap:6px;flex-wrap:wrap}',
+      '.realp-chip{appearance:none;border:1px solid var(--dsw-alias-border-l1);border-radius:999px;background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-secondary);font:inherit;font-size:11px;padding:3px 10px;cursor:pointer;display:inline-flex;align-items:center;gap:5px}',
+      '.realp-chip:hover{color:var(--dsw-alias-label-primary);border-color:var(--dsw-alias-border-l2,var(--dsw-alias-border-l1))}',
+      '.realp-chip-on{background:var(--dsw-alias-brand-primary);border-color:transparent;color:var(--dsw-alias-label-primary-inverted,#fff)}',
+      '.realp-chip-count{opacity:.7;font-size:10px}',
+      '.realp-pager{display:flex;align-items:center;justify-content:center;gap:10px;padding:8px 0 2px;color:var(--dsw-alias-label-secondary);font-size:11px}',
+      '.realp-pager-single{justify-content:flex-start;padding:4px 0 0}',
+      '.realp-pager-info{white-space:nowrap}',
+      '.realp-pager-btn{height:26px;padding:0 10px;font-size:11px}',
+      // ── 视觉打磨 ──
+      '.realp-bar{display:flex;height:6px;border-radius:3px;overflow:hidden;background:var(--dsw-alias-bg-layer-2);margin-top:6px}',
+      '.realp-bar-used{background:var(--dsw-alias-brand-primary);transition:width .2s ease}',
+      '.realp-bar-rest{background:transparent}',
+      '.realp-stat-sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+      '.realp-toolchip{transition:border-color .12s ease,color .12s ease}',
+      '.realp-toolgrid{max-height:280px;overflow:auto}',
+      '.realp-row{transition:border-color .12s ease,background-color .12s ease}',
+      '.realp-row:hover{border-color:var(--dsw-alias-border-l2,var(--dsw-alias-border-l1))}',
+      '.realp-btn{transition:background-color .12s ease,border-color .12s ease,opacity .12s ease}',
+      '.realp-btn:focus-visible,.realp-link:focus-visible,.realp-x:focus-visible,.realp-chip:focus-visible,.realp-seg-item:focus-visible{outline:2px solid var(--dsw-alias-brand-primary);outline-offset:1px}',
+      '.realp-empty{text-align:center;padding:18px 12px}',
+      '.realp-section-head{align-items:baseline}',
+      // ── 卡片与工具条 ──
+      '.realp-card{display:flex;flex-direction:column;gap:6px;padding:11px 13px;border:1px solid var(--dsw-alias-border-l1);border-radius:10px;background:var(--dsw-alias-bg-layer-1)}',
+      '.realp-card-head{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}',
+      '.realp-card-title{font-size:12px;font-weight:600}',
+      '.realp-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}',
+      '.realp-filter{max-width:240px}',
       // ── 预设 ──
       '.realp-preset-save{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:8px}',
       '.realp-preset-name{max-width:230px}',
@@ -493,6 +604,149 @@ window.__ModuleLoader__.load({
       );
     }
 
+    // ── 导航：子菜单（标签栏）、子子菜单（分段控件）、分页器 ────────────────
+
+    /**
+     * 模块级的取词函数。
+     *
+     * 为什么不用组件里的 t：t 是 ReaLitePage 内部的局部变量（每次渲染按当前语言重建），
+     * 而下面这些小组件定义在模块作用域——在里面写 t(...) 在浏览器里就是 ReferenceError，
+     * 整个设置页会白屏（自检脚本的假 React 会把这个异常吞掉，所以更危险）。
+     */
+    function tr(key, params) {
+      return makeT(localeRef.current)(key, params);
+    }
+
+    /**
+     * 一级子菜单：标签栏。
+     * 用「下划线」样式而不是药丸样式，是为了和二级（分段控件）拉开层级 ——
+     * 两级用同一种视觉，用户会分不清自己在哪一层。
+     */
+    function TabBar(props) {
+      return h(
+        'div',
+        { className: 'realp-tabbar' },
+        h(
+          'div',
+          { className: 'realp-tabbar-items', role: 'tablist' },
+          props.tabs.map(function (tab) {
+            var on = tab.id === props.current;
+            return h(
+              'button',
+              {
+                key: tab.id,
+                type: 'button',
+                role: 'tab',
+                'aria-selected': on ? 'true' : 'false',
+                className: 'realp-tab' + (on ? ' realp-tab-on' : ''),
+                onClick: function () { props.onSelect(tab.id); },
+              },
+              h('span', null, tab.label),
+              tab.badge === undefined || tab.badge === null
+                ? null
+                : h('span', { className: 'realp-tab-badge' + (on ? ' realp-tab-badge-on' : '') }, String(tab.badge)),
+            );
+          }),
+        ),
+        props.status ? h('div', { className: 'realp-tabbar-status' }, props.status) : null,
+      );
+    }
+
+    /** 二级子菜单：分段控件（同一区块内的子分区切换）。 */
+    function Segmented(props) {
+      return h(
+        'div',
+        { className: 'realp-seg', role: 'tablist' },
+        props.items.map(function (item) {
+          var on = item.id === props.current;
+          return h(
+            'button',
+            {
+              key: item.id,
+              type: 'button',
+              role: 'tab',
+              'aria-selected': on ? 'true' : 'false',
+              className: 'realp-seg-item' + (on ? ' realp-seg-item-on' : ''),
+              onClick: function () { props.onSelect(item.id); },
+            },
+            item.label,
+            item.badge === undefined || item.badge === null
+              ? null
+              : h('span', { className: 'realp-seg-badge' }, String(item.badge)),
+          );
+        }),
+      );
+    }
+
+    /** 筛选片：单选，用来在长列表里快速定位（全部 / 已加载 / 自定义…）。 */
+    function Chips(props) {
+      return h(
+        'div',
+        { className: 'realp-chips' },
+        props.items.map(function (item) {
+          var on = item.id === props.current;
+          return h(
+            'button',
+            {
+              key: item.id,
+              type: 'button',
+              'aria-pressed': on ? 'true' : 'false',
+              className: 'realp-chip' + (on ? ' realp-chip-on' : ''),
+              onClick: function () { props.onSelect(item.id); },
+            },
+            item.label,
+            item.count === undefined ? null : h('span', { className: 'realp-chip-count' }, String(item.count)),
+          );
+        }),
+      );
+    }
+
+    /**
+     * 分页器。工具列表有 200+ 条，一次全铺开会把整页拉得极长；
+     * 分页后每页一屏，滚动距离与查找路径都短得多。
+     */
+    function Pager(props) {
+      if (props.pages <= 1) {
+        return props.total ? h('div', { className: 'realp-pager realp-pager-single' }, tr('pageTotal', { n: props.total })) : null;
+      }
+      return h(
+        'div',
+        { className: 'realp-pager' },
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'realp-btn realp-pager-btn',
+            disabled: props.page <= 1,
+            onClick: function () { props.onGo(props.page - 1); },
+          },
+          '‹ ' + tr('pagePrev'),
+        ),
+        h('span', { className: 'realp-pager-info' }, tr('pageInfo', { n: props.page, total: props.pages }) + ' · ' + tr('pageTotal', { n: props.total })),
+        h(
+          'button',
+          {
+            type: 'button',
+            className: 'realp-btn realp-pager-btn',
+            disabled: props.page >= props.pages,
+            onClick: function () { props.onGo(props.page + 1); },
+          },
+          tr('pageNext') + ' ›',
+        ),
+      );
+    }
+
+    /** 上下文构成条：已用 vs 省下，比两个数字更直观。 */
+    function CostBar(props) {
+      var used = Math.max(0, Math.min(100, props.usedPct));
+      return h(
+        'div',
+        { className: 'realp-bar' },
+        h('div', { className: 'realp-bar-used', style: { width: used.toFixed(1) + '%' } }),
+        h('div', { className: 'realp-bar-rest', style: { width: (100 - used).toFixed(1) + '%' } }),
+      );
+    }
+
     function tokens(value) {
       return '~' + Math.round(value || 0).toLocaleString() + ' tok';
     }
@@ -529,6 +783,19 @@ window.__ModuleLoader__.load({
       var [presetName, setPresetName] = useState('');
       var [presetNote, setPresetNote] = useState('');
       var [presetError, setPresetError] = useState('');
+      // ── 导航状态（一律追加在末尾，见 AGENTS.md 第 6 条） ──
+      // 一级分区：概览 / 功能族 / 分组 / 预设 / 工具 / 更新与体检
+      var [tab, setTab] = useState('overview');
+      // 二级子分区：功能族页的「全部/内置/自定义」、预设页的「全部/按时间」
+      var [bundleSeg, setBundleSeg] = useState('all');
+      var [presetSeg, setPresetSeg] = useState('all');
+      // 筛选片与筛选框
+      var [bundleFilter, setBundleFilter] = useState('');
+      var [presetFilter, setPresetFilter] = useState('');
+      var [bundleChip, setBundleChip] = useState('all');
+      // 分页：每页条数与当前页
+      var [page, setPage] = useState(1);
+      var [toolPage, setToolPage] = useState(1);
       var pollRef = useRef(null);
 
       var t = makeT(locale);
@@ -901,7 +1168,8 @@ window.__ModuleLoader__.load({
         if (name) setDraftTools(draftTools.filter(function (entry) { return entry !== name; }));
       }
 
-      if (state === null) {
+      // state 可能是 undefined（接口异常返回），只判 null 会漏。
+      if (state === null || state === undefined) {
         return h(
           'div',
           { className: 'realp-root' },
@@ -914,6 +1182,67 @@ window.__ModuleLoader__.load({
       var serverText = (t('server') && t('server')[serverPhase]) || serverPhase;
       // 宿主半可能是旧版本（没返回 presets）：缺了就按空列表渲染，别整页白屏。
       var presets = Array.isArray(state.presets) ? state.presets : [];
+
+      // ── 派生数据：筛选与分页都在渲染前算好，渲染函数只负责画 ──────────
+      var allBundles = state.bundles || [];
+      var customBundles = allBundles.filter(function (bundle) { return bundle.custom === true; });
+      var builtinBundles = allBundles.filter(function (bundle) { return bundle.custom !== true; });
+      var bundleQuery = bundleFilter.trim().toLowerCase();
+      var filteredBundles = allBundles.filter(function (bundle) {
+        if (bundleSeg === 'builtin' && bundle.custom === true) return false;
+        if (bundleSeg === 'custom' && bundle.custom !== true) return false;
+        if (bundleChip === 'active' && !bundle.active) return false;
+        if (bundleChip === 'idle' && bundle.active) return false;
+        if (bundleChip === 'risky' && !bundle.risky) return false;
+        if (bundleQuery === '') return true;
+        return (
+          bundle.label.toLowerCase().indexOf(bundleQuery) >= 0 ||
+          bundle.id.toLowerCase().indexOf(bundleQuery) >= 0 ||
+          (bundle.hint || '').toLowerCase().indexOf(bundleQuery) >= 0
+        );
+      });
+      var BUNDLE_PAGE_SIZE = 6;
+      var bundlePages = Math.max(1, Math.ceil(filteredBundles.length / BUNDLE_PAGE_SIZE));
+      var bundlePage = Math.min(Math.max(1, page), bundlePages);
+      var bundleSlice = filteredBundles.slice((bundlePage - 1) * BUNDLE_PAGE_SIZE, bundlePage * BUNDLE_PAGE_SIZE);
+
+      var presetQuery = presetFilter.trim().toLowerCase();
+      var filteredPresets = presets.filter(function (preset) {
+        if (presetQuery === '') return true;
+        return (
+          preset.name.toLowerCase().indexOf(presetQuery) >= 0 ||
+          (preset.label || '').toLowerCase().indexOf(presetQuery) >= 0 ||
+          (preset.note || '').toLowerCase().indexOf(presetQuery) >= 0
+        );
+      });
+      // 「按时间」子分区：新的在前；「全部」保持宿主给的顺序。
+      if (presetSeg === 'time') {
+        filteredPresets = filteredPresets.slice().sort(function (left, right) {
+          return String(right.savedAt || '').localeCompare(String(left.savedAt || ''));
+        });
+      }
+      var PRESET_PAGE_SIZE = 5;
+      var presetPages = Math.max(1, Math.ceil(filteredPresets.length / PRESET_PAGE_SIZE));
+      var presetPage = Math.min(Math.max(1, page), presetPages);
+      var presetSlice = filteredPresets.slice((presetPage - 1) * PRESET_PAGE_SIZE, presetPage * PRESET_PAGE_SIZE);
+
+      var toolMatches = matches || [];
+      var TOOL_PAGE_SIZE = 12;
+      var toolPages = Math.max(1, Math.ceil(toolMatches.length / TOOL_PAGE_SIZE));
+      var currentToolPage = Math.min(Math.max(1, toolPage), toolPages);
+      var toolSlice = toolMatches.slice((currentToolPage - 1) * TOOL_PAGE_SIZE, currentToolPage * TOOL_PAGE_SIZE);
+
+      var activeCount = allBundles.filter(function (bundle) { return bundle.active; }).length;
+      var usedPct = state.totalTokens > 0 ? (state.activeTokens / state.totalTokens) * 100 : 0;
+
+      var TABS = [
+        { id: 'overview', label: t('tabOverview') },
+        { id: 'bundles', label: t('tabBundles'), badge: activeCount },
+        { id: 'groups', label: t('tabGroups'), badge: customBundles.length },
+        { id: 'presets', label: t('tabPresets'), badge: presets.length },
+        { id: 'tools', label: t('tabTools') },
+        { id: 'maint', label: t('tabMaint') },
+      ];
 
       return h(
         'div',
@@ -949,67 +1278,152 @@ window.__ModuleLoader__.load({
           : null,
         state.writable === false ? h('div', { className: 'realp-note realp-note-warn' }, t('readOnly')) : null,
 
-        h(
-          'div',
-          { className: 'realp-summary' },
-          h(Stat, { label: t('metaTools'), value: tokens(state.metaTokens) }),
-          h(Stat, {
-            label: t('bundlesCost'),
-            value: tokens(state.activeTokens - state.metaTokens),
-            sub: state.allActive
-              ? 'all'
-              : state.activeBundles.length === 0
-                ? t('noneOn')
-                : state.activeBundles.join(', '),
-          }),
-          h(Stat, {
-            label: t('total'),
-            value: tokens(state.activeTokens),
-            sub: t('savedPercent') + ' ' + state.savings + '%  ·  ' + t('fullLoad') + ' ' + tokens(state.totalTokens),
-            strong: true,
-          }),
-          h(Stat, {
-            label: t('liveTitle'),
-            value: state.live.toolCount + ' ' + t('toolsUnit'),
-            sub: tokens(state.live.tokens),
-          }),
-        ),
-        h('div', { className: 'realp-foot' }, t('liveHint')),
+        // ── 一级子菜单：分区 ──
+        h(TabBar, {
+          tabs: TABS,
+          current: tab,
+          onSelect: function (id) {
+            setTab(id);
+            setPage(1);
+            setToolPage(1);
+          },
+          status: state.snapshot.present
+            ? t('snapshot') + ' · ' + state.snapshot.toolCount + ' ' + t('toolsUnit')
+            : t('snapshotMissing'),
+        }),
 
-        h(
-          'div',
-          { className: 'realp-actions' },
-          h(
-            'button',
-            { className: 'realp-btn realp-btn-primary', disabled: busy || !state.writable, onClick: function () { save([]); } },
-            t('noneOn'),
-          ),
-          h(
-            'button',
-            { className: 'realp-btn', disabled: busy || !state.writable, onClick: function () { save(['all']); } },
-            t('allOn'),
-          ),
-          h(
-            'span',
-            { className: 'realp-foot' },
-            state.snapshot.present
-              ? t('snapshot') + '：' + state.snapshot.toolCount + ' ' + t('toolsUnit') + ' · ' + t('snapshotAt') + ' ' + String(state.snapshot.generatedAt || '').replace('T', ' ').slice(0, 19)
-              : t('snapshotMissing'),
-          ),
-        ),
+        // ── 分区：概览 ──
+        tab === 'overview'
+          ? h(
+              'div',
+              { className: 'realp-section' },
+              h('h3', null, t('overviewTitle')),
+              h('p', { className: 'realp-section-hint' }, t('overviewHint')),
+              h(
+                'div',
+                { className: 'realp-summary' },
+                h(Stat, { label: t('metaTools'), value: tokens(state.metaTokens) }),
+                h(Stat, {
+                  label: t('bundlesCost'),
+                  value: tokens(state.activeTokens - state.metaTokens),
+                  sub: state.allActive
+                    ? 'all'
+                    : state.activeBundles.length === 0
+                      ? t('noneOn')
+                      : state.activeBundles.join(', '),
+                }),
+                h(Stat, {
+                  label: t('total'),
+                  value: tokens(state.activeTokens),
+                  sub: t('savedPercent') + ' ' + state.savings + '%  ·  ' + t('fullLoad') + ' ' + tokens(state.totalTokens),
+                  strong: true,
+                }),
+                h(Stat, {
+                  label: t('liveTitle'),
+                  value: state.live.toolCount + ' ' + t('toolsUnit'),
+                  sub: tokens(state.live.tokens),
+                }),
+              ),
+              h(
+                'div',
+                { className: 'realp-card' },
+                h(
+                  'div',
+                  { className: 'realp-card-head' },
+                  h('span', { className: 'realp-card-title' }, t('costBreakdown')),
+                  h('span', { className: 'realp-foot' }, t('costUsed') + ' ' + usedPct.toFixed(1) + '%  ·  ' + t('costSaved') + ' ' + (100 - usedPct).toFixed(1) + '%'),
+                ),
+                h(CostBar, { usedPct: usedPct }),
+                h('div', { className: 'realp-foot' }, t('liveHint')),
+              ),
+              h(
+                'div',
+                { className: 'realp-card' },
+                h('div', { className: 'realp-card-head' }, h('span', { className: 'realp-card-title' }, t('quickActions'))),
+                h(
+                  'div',
+                  { className: 'realp-actions' },
+                  h(
+                    'button',
+                    { className: 'realp-btn realp-btn-primary', disabled: busy || !state.writable, onClick: function () { save([]); } },
+                    t('noneOn'),
+                  ),
+                  h(
+                    'button',
+                    { className: 'realp-btn', disabled: busy || !state.writable, onClick: function () { save(['all']); } },
+                    t('allOn'),
+                  ),
+                  h(
+                    'button',
+                    { className: 'realp-btn', disabled: busy || !state.writable, onClick: function () { setTab('bundles'); } },
+                    t('tabBundles'),
+                  ),
+                  h(
+                    'button',
+                    { className: 'realp-btn', disabled: busy || !state.writable, onClick: function () { setTab('presets'); } },
+                    t('tabPresets'),
+                  ),
+                ),
+                h(
+                  'span',
+                  { className: 'realp-foot' },
+                  state.snapshot.present
+                    ? t('snapshot') + '：' + state.snapshot.toolCount + ' ' + t('toolsUnit') + ' · ' + t('snapshotAt') + ' ' + String(state.snapshot.generatedAt || '').replace('T', ' ').slice(0, 19)
+                    : t('snapshotMissing'),
+                ),
+              ),
+            )
+          : null,
 
-        h(
-          'div',
-          { className: 'realp-section' },
-          h('h3', null, t('bundles')),
-          h('p', { className: 'realp-section-hint' }, t('bundleHint')),
-          h(
-            'div',
-            { className: 'realp-list' },
-            state.bundles.map(function (bundle) {
-              return h(
-                'label',
-                { className: 'realp-row' + (bundle.active ? ' realp-row-on' : ''), key: bundle.id },
+        // ── 分区：功能族 ──
+        tab === 'bundles'
+          ? h(
+              'div',
+              { className: 'realp-section' },
+              h(
+                'div',
+                { className: 'realp-section-head' },
+                h('h3', null, t('bundles')),
+                h(Segmented, {
+                  current: bundleSeg,
+                  onSelect: function (id) { setBundleSeg(id); setPage(1); },
+                  items: [
+                    { id: 'all', label: t('segAll'), badge: allBundles.length },
+                    { id: 'builtin', label: t('segBuiltin'), badge: builtinBundles.length },
+                    { id: 'custom', label: t('segCustom'), badge: customBundles.length },
+                  ],
+                }),
+              ),
+              h('p', { className: 'realp-section-hint' }, t('bundlesHint2')),
+              h(
+                'div',
+                { className: 'realp-toolbar' },
+                h(Chips, {
+                  current: bundleChip,
+                  onSelect: function (id) { setBundleChip(id); setPage(1); },
+                  items: [
+                    { id: 'all', label: t('chipAll'), count: filteredBundles.length },
+                    { id: 'active', label: t('chipActive'), count: allBundles.filter(function (b) { return b.active; }).length },
+                    { id: 'idle', label: t('chipIdle'), count: allBundles.filter(function (b) { return !b.active; }).length },
+                    { id: 'risky', label: t('chipRisky'), count: allBundles.filter(function (b) { return b.risky; }).length },
+                  ],
+                }),
+                h('input', {
+                  className: 'realp-input realp-filter',
+                  value: bundleFilter,
+                  placeholder: t('filterBundlePlaceholder'),
+                  onChange: function (event) { setBundleFilter(event.target.value); setPage(1); },
+                }),
+              ),
+              bundleSlice.length === 0
+                ? h('div', { className: 'realp-empty' }, t('noMatch'))
+                : h(
+                    'div',
+                    { className: 'realp-list' },
+                    bundleSlice.map(function (bundle) {
+                      return h(
+                        'label',
+                        { className: 'realp-row' + (bundle.active ? ' realp-row-on' : ''), key: bundle.id },
                 h('input', {
                   className: 'realp-check',
                   type: 'checkbox',
@@ -1066,29 +1480,38 @@ window.__ModuleLoader__.load({
                     : null,
                 ),
               );
-            }),
-          ),
-        ),
+                    }),
+                  ),
+              h(Pager, {
+                page: bundlePage,
+                pages: bundlePages,
+                total: filteredBundles.length,
+                onGo: function (next) { setPage(next); },
+              }),
+            )
+          : null,
 
-        h(
-          'div',
-          { className: 'realp-section' },
-          h(
-            'div',
-            { className: 'realp-section-head' },
-            h('h3', null, t('customTitle')),
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'realp-btn',
-                disabled: busy || !state.writable || editing !== null,
-                onClick: function () { openEditor(null); },
-              },
-              t('customNew'),
-            ),
-          ),
-          h('p', { className: 'realp-section-hint' }, t('customHint')),
+        // ── 分区：自定义分组 ──
+        tab === 'groups'
+          ? h(
+              'div',
+              { className: 'realp-section' },
+              h(
+                'div',
+                { className: 'realp-section-head' },
+                h('h3', null, t('customTitle')),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    className: 'realp-btn',
+                    disabled: busy || !state.writable || editing !== null,
+                    onClick: function () { openEditor(null); },
+                  },
+                  t('customNew'),
+                ),
+              ),
+              h('p', { className: 'realp-section-hint' }, t('customHint')),
           editing !== null
             ? h(
                 'div',
@@ -1297,28 +1720,44 @@ window.__ModuleLoader__.load({
                       );
                     }),
                 ),
-        ),
+            )
+          : null,
 
-        h(
-          'div',
-          { className: 'realp-section' },
-          h(
-            'div',
-            { className: 'realp-section-head' },
-            h('h3', null, t('presetsTitle')),
-            h(
-              'span',
-              { className: 'realp-foot' },
-              presets.length ? presets.length + ' × ' + t('presetCount') : t('presetEmpty'),
-            ),
-          ),
-          h('p', { className: 'realp-section-hint' }, t('presetsHint')),
-          presets.length === 0
-            ? null
+        // ── 分区：预设 ──
+        tab === 'presets'
+          ? h(
+              'div',
+              { className: 'realp-section' },
+              h(
+                'div',
+                { className: 'realp-section-head' },
+                h('h3', null, t('presetsTitle')),
+                h(Segmented, {
+                  current: presetSeg,
+                  onSelect: function (id) { setPresetSeg(id); setPage(1); },
+                  items: [
+                    { id: 'all', label: t('segAllPresets'), badge: presets.length },
+                    { id: 'time', label: t('segSavedAt') },
+                  ],
+                }),
+              ),
+              h('p', { className: 'realp-section-hint' }, t('presetsHint')),
+              h(
+                'div',
+                { className: 'realp-toolbar' },
+                h('input', {
+                  className: 'realp-input realp-filter',
+                  value: presetFilter,
+                  placeholder: t('filterPresetPlaceholder'),
+                  onChange: function (event) { setPresetFilter(event.target.value); setPage(1); },
+                }),
+              ),
+          filteredPresets.length === 0
+            ? h('div', { className: 'realp-empty' }, presets.length === 0 ? t('presetEmpty') : t('noMatch'))
             : h(
                 'div',
                 { className: 'realp-list' },
-                presets.map(function (preset) {
+                presetSlice.map(function (preset) {
                   return h(
                     'div',
                     { className: 'realp-row' + (preset.current ? ' realp-row-on' : ''), key: 'p-' + preset.name },
@@ -1366,6 +1805,12 @@ window.__ModuleLoader__.load({
                   );
                 }),
               ),
+          h(Pager, {
+            page: presetPage,
+            pages: presetPages,
+            total: filteredPresets.length,
+            onGo: function (next) { setPage(next); },
+          }),
           h(
             'div',
             { className: 'realp-preset-save' },
@@ -1388,26 +1833,30 @@ window.__ModuleLoader__.load({
             ),
           ),
           presetError ? h('div', { className: 'realp-note realp-note-error' }, presetError) : null,
-        ),
+            )
+          : null,
 
-        h(
-          'div',
-          { className: 'realp-section' },
-          h('h3', null, t('searchTitle')),
-          h('input', {
-            className: 'realp-input',
-            value: query,
-            placeholder: t('searchPlaceholder'),
-            onChange: function (event) { runSearch(event.target.value); },
-          }),
-          matches === null
-            ? null
-            : matches.length === 0
-              ? h('div', { className: 'realp-empty' }, t('searchEmpty'))
-              : h(
-                  'div',
-                  { className: 'realp-tools' },
-                  matches.map(function (tool) {
+        // ── 分区：工具检索 ──
+        tab === 'tools'
+          ? h(
+              'div',
+              { className: 'realp-section' },
+              h('h3', null, t('searchTitle')),
+              h('p', { className: 'realp-section-hint' }, t('toolsPageHint')),
+              h('input', {
+                className: 'realp-input',
+                value: query,
+                placeholder: t('searchPlaceholder'),
+                onChange: function (event) { runSearch(event.target.value); },
+              }),
+              matches === null
+                ? null
+                : matches.length === 0
+                  ? h('div', { className: 'realp-empty' }, t('searchEmpty'))
+                  : h(
+                      'div',
+                      { className: 'realp-tools' },
+                      toolSlice.map(function (tool) {
                     var picked = draftTools.indexOf(tool.name) >= 0;
                     var inEditor = editing !== null;
                     return h(
@@ -1441,50 +1890,58 @@ window.__ModuleLoader__.load({
                       h('p', { title: tool.desc }, tool.desc),
                     );
                   }),
-                ),
-        ),
-
-        state.snapshot.unassigned && state.snapshot.unassigned.length > 0
-          ? h('div', { className: 'realp-note realp-note-warn' }, t('unassigned') + '：' + state.snapshot.unassigned.join(', '))
+                    ),
+              h(Pager, {
+                page: currentToolPage,
+                pages: toolPages,
+                total: toolMatches.length,
+                onGo: function (next) { setToolPage(next); },
+              }),
+            )
           : null,
 
-        // ── 更新与体检 ─────────────────────────────────────────────────────
-        h(
-          'div',
-          { className: 'realp-section' },
-          h(
-            'div',
-            { className: 'realp-section-head' },
-            h('h3', null, t('maintTitle')),
-            h(
+        // ── 分区：更新与体检 ──
+        tab === 'maint'
+          ? h(
               'div',
-              { className: 'realp-actions' },
+              { className: 'realp-section' },
               h(
-                'label',
-                { className: 'realp-maint-switch' },
-                h('input', {
-                  type: 'checkbox',
-                  checked: maintLive,
-                  disabled: maintBusy !== '',
-                  onChange: function (event) { setMaintLive(event.target.checked); },
-                }),
-                t('maintLive'),
+                'div',
+                { className: 'realp-section-head' },
+                h('h3', null, t('maintTitle')),
+                h(
+                  'div',
+                  { className: 'realp-actions' },
+                  h(
+                    'label',
+                    { className: 'realp-maint-switch' },
+                    h('input', {
+                      type: 'checkbox',
+                      checked: maintLive,
+                      disabled: maintBusy !== '',
+                      onChange: function (event) { setMaintLive(event.target.checked); },
+                    }),
+                    t('maintLive'),
+                  ),
+                  h(
+                    'button',
+                    {
+                      type: 'button',
+                      className: 'realp-btn',
+                      disabled: maintBusy !== '' || busy,
+                      onClick: runCheck,
+                    },
+                    maintBusy === 'check' ? t('maintBusy') : t('maintCheck'),
+                  ),
+                ),
               ),
-              h(
-                'button',
-                {
-                  type: 'button',
-                  className: 'realp-btn',
-                  disabled: maintBusy !== '' || busy,
-                  onClick: runCheck,
-                },
-                maintBusy === 'check' ? t('maintBusy') : t('maintCheck'),
-              ),
-            ),
-          ),
-          h('p', { className: 'realp-section-hint' }, t('maintHint')),
+              h('p', { className: 'realp-section-hint' }, t('maintHint')),
 
-          maintError !== '' ? h('div', { className: 'realp-note realp-note-error' }, maintError) : null,
+              state.snapshot.unassigned && state.snapshot.unassigned.length > 0
+                ? h('div', { className: 'realp-note realp-note-warn' }, t('unassigned') + '：' + state.snapshot.unassigned.join(', '))
+                : null,
+
+              maintError !== '' ? h('div', { className: 'realp-note realp-note-error' }, maintError) : null,
 
           report === null
             ? h('div', { className: 'realp-note' }, t('maintIdle'))
@@ -1739,7 +2196,8 @@ window.__ModuleLoader__.load({
                 maintLog !== '' ? h('div', { className: 'realp-maint-log' }, maintLog) : null,
                 maintBusy !== '' ? h('div', { className: 'realp-note' }, t('maintBusy')) : null,
               ),
-        ),
+            )
+          : null,
 
         h('div', { className: 'realp-foot' }, t('configPath') + '：' + state.configPath),
       );

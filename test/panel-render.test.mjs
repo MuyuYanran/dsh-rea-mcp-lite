@@ -28,8 +28,28 @@ function check(name, condition, detail = '') {
   }
 }
 
-/** 收集元素树里的纯文本，用来断言「某段文案确实渲染出来了」。 */
+/**
+ * 收集元素树里的纯文本，用来断言「某段文案确实渲染出来了」。
+ *
+ * 函数组件（TabBar / Segmented / Chips / Pager / CostBar…）在真 React 里会被展开，
+ * 但这里的假运行时只造元素、不调用组件，所以 textOf 必须自己展开一层 ——
+ * 否则子菜单的文案在测试里永远「不存在」，等于没测。
+ */
+function expand(node) {
+  if (node === null || node === undefined || typeof node === 'string' || typeof node === 'number' || typeof node === 'boolean') return node;
+  if (Array.isArray(node)) return node.map(expand);
+  if (typeof node.type === 'function') {
+    try {
+      return expand(node.type(node.props ?? {}));
+    } catch (error) {
+      return null;
+    }
+  }
+  return node;
+}
+
 function textOf(node, out = []) {
+  node = expand(node);
   if (node === null || node === undefined || node === false) return out;
   if (typeof node === 'string' || typeof node === 'number') {
     out.push(String(node));
@@ -45,10 +65,20 @@ function textOf(node, out = []) {
 
 /** 按属性找元素（placeholder 之类不在文本节点里，textOf 看不到）。 */
 function hasProp(node, key, needle) {
+  node = expand(node);
   if (node === null || node === undefined || typeof node === 'string' || typeof node === 'number' || node === false) return false;
   if (Array.isArray(node)) return node.some((child) => hasProp(child, key, needle));
   if (typeof node.props?.[key] === 'string' && node.props[key].includes(needle)) return true;
   return (node.children ?? []).some((child) => hasProp(child, key, needle));
+}
+
+/** 统计某类元素（如 .realp-row）出现的次数：分页与筛选的断言靠它。 */
+function countBy(node, className) {
+  node = expand(node);
+  if (node === null || node === undefined || typeof node === 'string' || typeof node === 'number' || node === false) return 0;
+  if (Array.isArray(node)) return node.reduce((sum, child) => sum + countBy(child, className), 0);
+  const own = typeof node.props?.className === 'string' && node.props.className.split(/\s+/).includes(className) ? 1 : 0;
+  return own + (node.children ?? []).reduce((sum, child) => sum + countBy(child, className), 0);
 }
 
 /**
@@ -242,7 +272,8 @@ const happyClassify = {
  * 顺序来自 ReaLitePage 源码：locale, state, error, note, busy, query, matches,
  * expanded, editing, draftId, draftLabel, draftTools, customError, allTools,
  * toolFilter, pickedBundle, report, maintBusy, maintLog, maintError, classify, maintLive,
- * presetName, presetNote, presetError。
+ * presetName, presetNote, presetError,
+ * tab, bundleSeg, presetSeg, bundleFilter, presetFilter, bundleChip, page, toolPage。
  * 新 state 一律追加在末尾（插在中间会让后面所有槽位错位，已经踩过一次）。
  */
 const HOOK = {
@@ -271,6 +302,15 @@ const HOOK = {
   presetName: 22,
   presetNote: 23,
   presetError: 24,
+  // ── 导航（子菜单/子子菜单/分页）
+  tab: 25,
+  bundleSeg: 26,
+  presetSeg: 27,
+  bundleFilter: 28,
+  presetFilter: 29,
+  bundleChip: 30,
+  page: 31,
+  toolPage: 32,
 };
 
 // ── 1. 首屏（state=null） ───────────────────────────────────────────────────
@@ -290,11 +330,120 @@ console.log('\n有状态、未检查更新');
   const { component, runtime } = buildComponent();
   const tree = runtime.render(component, [[[HOOK.state, baseState()]]]);
   const text = textOf(tree).join(' ');
-  check('渲染出功能族列表', text.includes('会话与导航') && text.includes('抓包与信号'));
-  check('渲染出「更新与体检」标题', text.includes('更新与体检'));
-  check('未检查时给出检查按钮文案', text.includes('检查更新'));
+  check('默认落在「概览」分区', text.includes('当前生效'));
+  check('概览区渲染出成本卡片与快捷操作', text.includes('上下文构成') && text.includes('快捷操作'));
   check('显示配置写入路径', text.includes('/gw/config.json'));
-  check('未检查时不渲染结论卡片（未访问 coverage）', !text.includes('工具覆盖'));
+  check('概览区不渲染功能族列表（那是另一个分区）', !text.includes('会话与导航'));
+  check('概览区不渲染更新与体检（那是另一个分区）', !text.includes('检查更新'));
+}
+
+// ── 2b. 分区：功能族 ───────────────────────────────────────────────────────
+
+console.log('\n分区：功能族');
+{
+  const { component, runtime } = buildComponent();
+  const tree = runtime.render(component, [
+    [[HOOK.state, baseState()]],
+    [[HOOK.tab, 'bundles']],
+  ]);
+  const text = textOf(tree).join(' ');
+  check('功能族分区渲染出族名', text.includes('会话与导航') && text.includes('抓包与信号'));
+  check('功能族分区有二级子菜单（全部/内置/自定义）', text.includes('全部') && text.includes('内置') && text.includes('自定义'));
+  check('功能族分区有筛选片（已加载/未加载/需环境）', text.includes('已加载') && text.includes('未加载') && text.includes('需环境'));
+  check('功能族分区有名字筛选框', hasProp(tree, 'placeholder', '按名字筛选功能族'));
+  check('功能族分区不渲染自定义分组那一段', !text.includes('自定义分组'));
+}
+
+// ── 2c. 分区：功能族（筛选与分页） ─────────────────────────────────────────
+
+console.log('\n分区：功能族筛选与分页');
+{
+  // 标签补零到两位：否则「族 1」是「族 10」的前缀，断言会误判。
+  const makeBundles = (count) => {
+    const list = [];
+    for (let index = 0; index < count; index += 1) {
+      const id = 'b' + String(index).padStart(2, '0');
+      list.push({
+        id,
+        label: '族' + id,
+        hint: '',
+        toolCount: index,
+        tokens: index * 10,
+        active: index % 2 === 0,
+        unavailable: false,
+        definedTools: index,
+        risky: false,
+        custom: false,
+        tools: [],
+        extras: [],
+      });
+    }
+    return list;
+  };
+  const { component, runtime } = buildComponent();
+  const many = baseState();
+  many.bundles = makeBundles(14);
+  const tree = runtime.render(component, [
+    [[HOOK.state, many]],
+    [[HOOK.tab, 'bundles']],
+  ]);
+  const text = textOf(tree).join(' ');
+  check('长列表被分页（一页 6 条，不是 14 条全铺）', text.includes('族b00') && !text.includes('族b13'), text.slice(0, 120));
+  check('渲染出分页器', text.includes('上一页') && text.includes('下一页') && text.includes('第 1 / 3 页'));
+  check('分页确实切成了 6 行', countBy(tree, 'realp-row') === 6, String(countBy(tree, 'realp-row')));
+}
+{
+  const { component, runtime } = buildComponent();
+  const many = baseState();
+  many.bundles = [];
+  for (let index = 0; index < 14; index += 1) {
+    const id = 'b' + String(index).padStart(2, '0');
+    many.bundles.push({
+      id, label: '族' + id, hint: '', toolCount: index, tokens: index * 10,
+      active: index % 2 === 0, unavailable: false, definedTools: index, risky: false, custom: false, tools: [], extras: [],
+    });
+  }
+  const tree = runtime.render(component, [
+    [[HOOK.state, many]],
+    [[HOOK.tab, 'bundles']],
+    [[HOOK.bundleChip, 'active']],
+  ]);
+  const text = textOf(tree).join(' ');
+  check('筛选片「已加载」只留偶数族', text.includes('族b00') && !text.includes('族b01'), text.slice(0, 200));
+}
+{
+  const { component, runtime } = buildComponent();
+  const tree = runtime.render(component, [
+    [[HOOK.state, baseState()]],
+    [[HOOK.tab, 'bundles']],
+    [[HOOK.bundleFilter, '抓包']],
+  ]);
+  const text = textOf(tree).join(' ');
+  check('按名字筛选后只剩命中的族', text.includes('抓包与信号') && !text.includes('会话与导航'));
+}
+{
+  const { component, runtime } = buildComponent();
+  const tree = runtime.render(component, [
+    [[HOOK.state, baseState()]],
+    [[HOOK.tab, 'bundles']],
+    [[HOOK.bundleFilter, 'zzz-不存在']],
+  ]);
+  check('筛不出东西时给空态而不是空白', textOf(tree).join(' ').includes('没有匹配项'));
+}
+
+// ── 2d. 分区：自定义分组 ───────────────────────────────────────────────────
+
+console.log('\n分区：自定义分组');
+{
+  const { component, runtime } = buildComponent();
+  const tree = runtime.render(component, [
+    [[HOOK.state, baseState()]],
+    [[HOOK.tab, 'groups']],
+  ]);
+  const text = textOf(tree).join(' ');
+  check('分组分区渲染出自定义组', text.includes('我的常用'));
+  check('分组分区有新建按钮', text.includes('新建分组'));
+  check('分组分区不渲染功能族列表', !text.includes('会话与导航'));
 }
 
 // ── 3. 完整数据（正常路径） ─────────────────────────────────────────────────
@@ -304,6 +453,7 @@ console.log('\n完整数据（正常）');
   const { component, runtime } = buildComponent();
   const tree = runtime.render(component, [
     [[HOOK.state, baseState()]],
+    [[HOOK.tab, 'maint']],
     [[HOOK.report, happyReport]],
     [[HOOK.classify, happyClassify]],
   ]);
@@ -335,6 +485,7 @@ console.log('\n出错降级');
   const state = baseState({ updates: undefined, writable: false, bundles: [] });
   const tree = runtime.render(component, [
     [[HOOK.state, state]],
+    [[HOOK.tab, 'maint']],
     [[HOOK.report, broken]],
     [[HOOK.classify, { ok: true, counts: { total: 0 }, assignments: [], applyable: 0 }]],
   ]);
@@ -353,6 +504,7 @@ console.log('\n报告整体失败');
   const { component, runtime } = buildComponent();
   const tree = runtime.render(component, [
     [[HOOK.state, baseState()]],
+    [[HOOK.tab, 'maint']],
     [[HOOK.report, { ok: false, reason: '找不到 rea-mcp-lite 网关' }]],
   ]);
   const text = textOf(tree).join(' ');
@@ -397,6 +549,7 @@ console.log('\n预设');
         }),
       ],
     ],
+    [[HOOK.tab, 'presets']],
   ]);
   const text = textOf(tree).join(' ');
   check('渲染出预设区块与说明', text.includes('存成一套带名字的方案'));
@@ -408,20 +561,41 @@ console.log('\n预设');
   check('这一版 REA 没这族时标出来', text.includes('这一版 REA 没有这些族的工具') && text.includes('capture'));
   check('渲染出读取/删除按钮', text.includes('读取') && text.includes('删除'));
   check('渲染出保存按钮与名字输入框', text.includes('存下当前勾选') && hasProp(tree, 'placeholder', '预设名'));
+  check('预设分区有二级子菜单（全部/按时间）', text.includes('全部预设') && text.includes('按保存时间'));
+  check('预设分区有名字筛选框', hasProp(tree, 'placeholder', '按名字筛选预设'));
 }
 {
   // 旧宿主半不返回 presets：必须按空列表渲染（取错属性 = 白屏）。
   const { component, runtime } = buildComponent();
   const legacy = baseState();
   delete legacy.presets;
-  const tree = runtime.render(component, [[[HOOK.state, legacy]]]);
+  const tree = runtime.render(component, [[[HOOK.state, legacy]], [[HOOK.tab, 'presets']]]);
   const text = textOf(tree).join(' ');
   check('宿主半没返回 presets 时按空列表渲染', text.includes('还没有预设') && !text.includes('undefined'));
 }
 {
   const { component, runtime } = buildComponent();
-  const tree = runtime.render(component, [[[HOOK.state, baseState({ presets: [] })]], [[HOOK.presetError, '预设名不能含 /']]]);
+  const tree = runtime.render(component, [[[HOOK.state, baseState({ presets: [] })]], [[HOOK.tab, 'presets']], [[HOOK.presetError, '预设名不能含 /']]]);
   check('预设错误渲染成红色提示', textOf(tree).join(' ').includes('预设名不能含 /'));
+}
+
+// ── 8. 工具分区（分页） ─────────────────────────────────────────────────────
+
+console.log('\n分区：工具');
+{
+  const tool = (index) => ({ name: 'tool_' + index, desc: '第 ' + index + ' 个工具', bundles: ['nav'], tokens: 10 + index });
+  const many = Array.from({ length: 30 }, (unused, index) => tool(index));
+  const { component, runtime } = buildComponent();
+  const tree = runtime.render(component, [
+    [[HOOK.state, baseState()]],
+    [[HOOK.tab, 'tools']],
+    [[HOOK.matches, many]],
+  ]);
+  const text = textOf(tree).join(' ');
+  check('工具分区渲染出工具名', text.includes('tool_0'));
+  check('工具列表分页（一页 12 条，不一次铺 30 条）', !text.includes('tool_25'), text.slice(0, 100));
+  check('工具分区有分页器', text.includes('上一页') && text.includes('第 1 / 3 页'));
+  check('工具分区有说明', text.includes('按名字或说明搜工具'));
 }
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`);
