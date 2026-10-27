@@ -1,6 +1,6 @@
 {
   "name": "rea-mcp-lite",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "DSH 与 REA 之间的 MCP 按需加载网关：把 REA 的全部工具压缩成 5 个元工具 + 可选功能族，支持热切换、自动归类新工具与更新体检。",

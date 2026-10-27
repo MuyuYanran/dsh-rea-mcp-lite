@@ -1,6 +1,6 @@
 {
   "name": "dsh-rea-lite-panel",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "REA 工具网关的设置页：按功能分区勾选功能族、看清每个族的上下文成本、保存与读取命名预设、热切换，并能检查/应用本仓库与 REA 的更新、把新工具自动归类。",
   "license": "MIT",
   "author": "MuyuYanran",
