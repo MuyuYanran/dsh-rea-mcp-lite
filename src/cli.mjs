@@ -7,6 +7,7 @@
 import { ALL_BUNDLE, describeBundles, unassignedTools, effectiveBundles, normalizeCustomBundle, extrasOf } from './bundles.mjs';
 import { projectTool, estimateTokens } from './lite.mjs';
 import { loadConfig, saveConfig, CONFIG_PATH, ROOT } from './config.mjs';
+import { presetStorePath, describePresetStore } from './preset-store.mjs';
 import { buildSnapshot, writeSnapshot, readSnapshot, SNAPSHOT_PATH, tokensOfChars } from './snapshot.mjs';
 import { normalizePresetName, capturePreset, listPresets, applyPreset, presetReport, presetCost, removePreset, presetIsCurrent } from './presets.mjs';
 import { probeTools } from './probe-client.mjs';
@@ -32,6 +33,7 @@ function printStatus() {
   const config = loadConfig();
   const active = config.activeBundles.length ? config.activeBundles.join(', ') : '（无，仅元工具）';
   console.log(`配置文件：${CONFIG_PATH}`);
+  console.log(`预设存储：${presetStorePath()}（${Object.keys(config.presets ?? {}).length} 个预设，不随插件升级丢失）`);
   console.log(`当前加载：${active}`);
   console.log(`schema 裁剪：${config.lite}   元工具：${config.metaTools ? '开' : '关'}`);
   console.log(`REA 启动命令：${config.child.command} ${config.child.args.join(' ')}`);
@@ -240,6 +242,9 @@ function runPreset() {
 
   if (sub === 'list' || sub === 'ls') {
     const presets = listPresets(config);
+    const store = describePresetStore();
+    console.log(`预设存储：${store.path}${store.writable ? '' : '（不可写！）'}`);
+    if (store.error) console.log(`注意：${store.error}`);
     if (!presets.length) {
       console.log('还没有预设。先把勾选调到想要的样子，然后：');
       console.log('  node src/cli.mjs preset save 原生深挖 --note "native + evidence"');

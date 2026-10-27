@@ -281,10 +281,10 @@ it too (via the `bundles` meta-tool), so "save this setup, I'll want it back lat
 ```
 
 A preset records **which bundles are checked** plus the `lite` / `shortDescription` / `metaTools`
-switches, a note and a timestamp. Loading it writes those keys back to `config.json`, and the usual
-hot-swap follows (about a second).
+switches, a note and a timestamp. Loading it writes those keys back, and the usual hot-swap follows
+(about a second).
 
-Three deliberate choices:
+Four deliberate choices:
 
 - **`child` is never stored.** The child command and environment are machine-specific (`JAVA_HOME`,
   external tool paths); letting them travel inside a preset means reading one machine's paths into
@@ -294,11 +294,27 @@ Three deliberate choices:
   skipped — it never silently loads an empty bundle.
 - **The schema profile is stored with it.** `lite` changes the length of every tool definition, so the
   cost basis moves with it; the panel tells you when the snapshot needs regenerating.
+- **Presets live outside the plugin directory.** They are not written into `config.json`, so
+  **updating the plugin does not clear them** (see below).
 
-What it looks like in the config:
+Presets have their own file, and its location deliberately does **not** follow `config.json`:
+
+```
+<user-data-root>/rea-lite/presets.json    user-data-root = DSH_HOME, or ~/.dsh when unset
+```
+
+Why a separate store: `config.json` lives wherever `REA_LITE_CONFIG` says, and when that is unset it
+sits at the gateway root — which, for a plugin installed from npm, is **inside the plugin package**
+(`node_modules/dsh-rea-lite-panel/gateway/`). Updating the plugin replaces that whole directory, so
+anything written inside it disappears with it. Presets are data you wrote by hand and should not be
+lost that way. It also matches what a preset already is: a record of "which bundles, which schema
+profile" with no machine paths in it, so it is portable across installs and profiles by nature.
+
+The file:
 
 ```json
 {
+  "version": 1,
   "presets": {
     "native-deep": {
       "activeBundles": ["nav", "native", "evidence"],
@@ -308,6 +324,12 @@ What it looks like in the config:
   }
 }
 ```
+
+- **Upgrading from an older version migrates automatically.** If `config.json` still carries `presets`,
+  the first read (proxy start, panel open, or any CLI run) moves them into the store and clears the
+  copy in `config.json` — two copies would drift apart, so only one is kept.
+- The `preset` subcommand and the panel both show the actual location, so you can back it up.
+- To relocate it: `REA_LITE_PRESETS` names the file directly, `REA_LITE_DATA_DIR` names the directory.
 
 A preset name is free text up to 48 characters (non-ASCII is fine), and may not contain
 `\ / : * ? " < > |` or control characters — it has to be a safe JSON key and a safe command-line
@@ -454,7 +476,7 @@ up in one long scroll:
 | **Overview** | What the model sees right now: meta-tool cost, cost of the ticked bundles, the total and how much it saves, the measured in-session values; plus a **context breakdown bar** (used vs saved) and quick actions | — |
 | **Bundles** | Tick bundles; each is labelled with tool count and approximate tokens | Sub-menu: all / built-in / custom; chips: all / loaded / not loaded / needs setup; a name filter; 6 per page |
 | **Groups** | Custom bundles (visual editor: every tool on the left, the selection on the right, drag or tick) | — |
-| **Presets** | Named presets: capture the current selection and schema profile, load it back in one click | Sub-menu: all presets / by time saved; a name filter; 5 per page |
+| **Presets** | Named presets: capture the current selection and schema profile, load it back in one click | Sub-menu: all presets / by time saved; a name filter; 5 per page; **shows the store location** (outside the plugin directory, so plugin updates do not clear it) |
 | **Tools** | Search tools by name or description and see which bundles own them and what they cost | 12 per page |
 | **Updates & health** | Conclusions for this repo / the REA package / tool coverage, the write actions, and the auto-update switches | "query REA live" toggle |
 
@@ -543,7 +565,7 @@ machine environment variable too, so the settings page and the gateway read and 
 | `toolCallTimeoutMs` | `600000` | Per-call timeout (decompiler-style tools can run for a long time) |
 | `customBundles` | `{}` | User-defined bundles: `{ id: { label?, hint?, tools: [...] } }` |
 | `bundleExtras` | `{}` | Tools auto-classified into built-in bundles: `{ "capture": ["inspect_x"] }` (additive, never replacing) |
-| `presets` | `{}` | Named presets: `{ "name": { activeBundles, lite?, shortDescription?, metaTools?, note?, savedAt? } }` (never stores `child`) |
+| `presets` | — | **Moved out of `config.json`**: presets live in `<user-data-root>/rea-lite/presets.json` so updating the plugin does not clear them (see "Presets"). The key here is only a one-time migration source — a legacy copy is read, moved, and cleaned up |
 | `updates.self` | `{ remote: "origin", checkOnStart: false }` | This repo's updates; `autoApply: true` fast-forwards at startup |
 | `updates.rea` | `{ registry: "https://registry.npmjs.org/rea-agents", checkOnStart: false }` | REA's own updates; `autoApply: true` upgrades at startup |
 | `child` | — | How to launch the real REA: `command` / `args` / `env` |
@@ -553,7 +575,8 @@ machine environment variable too, so the settings page and the gateway read and 
   still validated server-side by REA, so when you hit an argument error, fetch the original schema
   with `tool_schema`.
 - Environment variables: `REA_LITE_CONFIG` sets the config file location; `REA_LITE_LAUNCHER`
-  overrides the REA launcher path.
+  overrides the REA launcher path; `REA_LITE_PRESETS` / `REA_LITE_DATA_DIR` set the preset store
+  (see "Presets").
 - `child.env` is merged into the REA child process environment and is the entry point for pointing
   REA at external tools (`REA_TSHARK_COMMAND` and friends).
   **Changing `child` (command/args/env) triggers a child hot restart**: the proxy kills the old REA,
@@ -564,10 +587,10 @@ machine environment variable too, so the settings page and the gateway read and 
 ## Verifying it yourself
 
 ```bash
-node test/probe.mjs         # 27 integration tests: handshake / meta-tools / search / forwarding / hot load / hot unload / everything / custom bundles / presets
+node test/probe.mjs         # 28 integration tests: handshake / meta-tools / search / forwarding / hot load / hot unload / everything / custom bundles / presets
 node test/plugin.test.mjs   # 91 plugin checks: fake Cordis context drives the panel API + renders the settings page
-node test/maintenance.test.mjs # 136 checks: classification scoring / extras merge / tool coverage / version comparison / git fast-forward on a temporary real repo / presets / new panel routes
-node test/panel-render.test.mjs # 37 checks: re-renders the whole settings page on a minimal React runtime (every "Updates & health" and "Presets" branch)
+node test/maintenance.test.mjs # 163 checks: classification scoring / extras merge / tool coverage / version comparison / git fast-forward on a temporary real repo / presets / the standalone preset store / new panel routes
+node test/panel-render.test.mjs # 61 checks: re-renders the whole settings page on a minimal React runtime (every "Updates & health" and "Presets" branch)
 node test/reload-child.mjs  # 6 child hot-restart checks: change child.env → restart REA → re-handshake → refetch tools → notify client
 node test/check-config.mjs  # starts REA with the real config.json and confirms every tool is reachable
 node e2e-check.mjs          # 9 external-tool checks: real proxy → real REA → real objdump/rizin/tshark/WABT/SQLite/Frida/Cutter

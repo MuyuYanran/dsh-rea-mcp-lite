@@ -222,8 +222,12 @@ if (git(['--version']).status !== 0) {
 
 console.log('\n归类写入（applyClassify）');
 const originalConfigEnv = process.env.REA_LITE_CONFIG;
+const originalDataEnv = process.env.REA_LITE_DATA_DIR;
 const tmpConfig = path.join(tmp, 'config.json');
 process.env.REA_LITE_CONFIG = tmpConfig;
+// 预设存储不跟着 REA_LITE_CONFIG 走（见 src/preset-store.mjs），必须单独隔离，
+// 否则测试的预设会写进真实用户目录 ~/.dsh/rea-lite/。
+process.env.REA_LITE_DATA_DIR = tmp;
 fs.writeFileSync(tmpConfig, JSON.stringify({ activeBundles: [], customBundles: {} }, null, 2), 'utf8');
 
 const fakeTools = [
@@ -245,6 +249,8 @@ check('未知工具被拒绝', /未知工具/.test(badTool ?? ''), badTool ?? ''
 
 if (originalConfigEnv === undefined) delete process.env.REA_LITE_CONFIG;
 else process.env.REA_LITE_CONFIG = originalConfigEnv;
+if (originalDataEnv === undefined) delete process.env.REA_LITE_DATA_DIR;
+else process.env.REA_LITE_DATA_DIR = originalDataEnv;
 
 // ── 8. 描述函数（元工具与 CLI 共用措辞） ───────────────────────────────────
 
@@ -329,6 +335,129 @@ let removeError = null;
 try { presets.removePreset({ presets: { a: { activeBundles: [] } } }, 'zzz'); } catch (error) { removeError = error.message; }
 check('删不存在的预设报出已有名字', /没有预设/.test(removeError ?? '') && /a/.test(removeError ?? ''), removeError ?? '');
 
+// ── 9b. 预设独立存储（preset-store.mjs）────────────────────────────────────
+//
+// 这一节护的是「更新插件后预设还在」这条承诺。背景：预设原来存在 config.json 的 presets
+// 键里，而 npm 安装时 config.json 就落在插件包内的 gateway/ 目录 —— 插件一升级整目录被替换，
+// 预设随之消失。所以预设搬到不随包走的用户级存储。
+
+console.log('\n预设独立存储（preset-store.mjs）');
+{
+  const store = await load('src/preset-store.mjs');
+  const storeDir = fs.mkdtempSync(path.join(tmp, 'store-'));
+  const savedData = process.env.REA_LITE_DATA_DIR;
+  const savedPresets = process.env.REA_LITE_PRESETS;
+  process.env.REA_LITE_DATA_DIR = storeDir;
+  delete process.env.REA_LITE_PRESETS;
+  try {
+    const file = store.presetStorePath();
+    check('存储路径落在 REA_LITE_DATA_DIR 下', file === path.join(storeDir, 'presets.json'), file);
+    check('还没写过时 exists=false', store.readPresetStore(file).exists === false);
+
+    store.writePresetStore({ 原生深挖: { activeBundles: ['nav'] } }, file);
+    const round = store.readPresetStore(file);
+    check('写入后能读回', JSON.stringify(Object.keys(round.presets)) === JSON.stringify(['原生深挖']));
+    const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
+    check('落盘带版本号', raw.version === 1, String(raw.version));
+
+    // 坏文件不能让 CLI/面板整页崩：读成空表并如实报 error。
+    fs.writeFileSync(file, '{ 这不是 JSON', 'utf8');
+    const broken = store.readPresetStore(file);
+    check('坏 JSON 不抛异常，报 error 且预设为空', broken.presets !== undefined && Object.keys(broken.presets).length === 0 && typeof broken.error === 'string', broken.error ?? '');
+    fs.writeFileSync(file, JSON.stringify({ nope: 1 }), 'utf8');
+    check('缺 presets 字段时同样报错而不是猜', typeof store.readPresetStore(file).error === 'string');
+    fs.writeFileSync(file, JSON.stringify({ version: 1, presets: { 好: { activeBundles: ['nav'] }, 坏: 'x' } }), 'utf8');
+    check('读时按条规范化（坏条目丢掉）', Object.keys(store.readPresetStore(file).presets).join(',') === '好');
+
+    const info = store.describePresetStore();
+    check('describePresetStore 报出路径与可写性', info.path === file && info.writable === true && info.count === 1, JSON.stringify(info));
+  } finally {
+    if (savedData === undefined) delete process.env.REA_LITE_DATA_DIR;
+    else process.env.REA_LITE_DATA_DIR = savedData;
+    if (savedPresets === undefined) delete process.env.REA_LITE_PRESETS;
+    else process.env.REA_LITE_PRESETS = savedPresets;
+  }
+}
+{
+  // REA_LITE_PRESETS 优先级最高（自检脚本/高级用户直接指文件）。
+  const store = await load('src/preset-store.mjs');
+  const savedPresets = process.env.REA_LITE_PRESETS;
+  const savedData = process.env.REA_LITE_DATA_DIR;
+  process.env.REA_LITE_DATA_DIR = 'D:/should/be/ignored';
+  process.env.REA_LITE_PRESETS = path.join(tmp, 'explicit.json');
+  try {
+    check('REA_LITE_PRESETS 覆盖目录设置', store.presetStorePath() === path.resolve(path.join(tmp, 'explicit.json')), store.presetStorePath());
+  } finally {
+    if (savedPresets === undefined) delete process.env.REA_LITE_PRESETS;
+    else process.env.REA_LITE_PRESETS = savedPresets;
+    if (savedData === undefined) delete process.env.REA_LITE_DATA_DIR;
+    else process.env.REA_LITE_DATA_DIR = savedData;
+  }
+}
+{
+  // 关键回归：预设**不跟随** config.json 的位置。
+  // 跟着走的话，config.json 装在插件包内时预设也会进包内 —— 等于没修。
+  const store = await load('src/preset-store.mjs');
+  const savedPresets = process.env.REA_LITE_PRESETS;
+  const savedData = process.env.REA_LITE_DATA_DIR;
+  const savedConfig = process.env.REA_LITE_CONFIG;
+  delete process.env.REA_LITE_PRESETS;
+  delete process.env.REA_LITE_DATA_DIR;
+  process.env.REA_LITE_CONFIG = path.join('<profile>', 'node_modules', 'dsh-rea-lite-panel', 'gateway', 'config.json');
+  try {
+    const p = store.presetStorePath();
+    check('预设路径不含插件包目录（不随 REA_LITE_CONFIG 走）', !p.includes('node_modules'), p);
+    check('默认落在用户数据根（DSH_HOME 或 ~/.dsh）下', p.includes(`${path.sep}rea-lite${path.sep}presets.json`), p);
+  } finally {
+    if (savedPresets === undefined) delete process.env.REA_LITE_PRESETS;
+    else process.env.REA_LITE_PRESETS = savedPresets;
+    if (savedData === undefined) delete process.env.REA_LITE_DATA_DIR;
+    else process.env.REA_LITE_DATA_DIR = savedData;
+    if (savedConfig === undefined) delete process.env.REA_LITE_CONFIG;
+    else process.env.REA_LITE_CONFIG = savedConfig;
+  }
+}
+{
+  // 迁移：旧 config.json 里有 presets → 搬进独立存储，并从 config.json 清掉那份副本。
+  const store = await load('src/preset-store.mjs');
+  const gw = await load('src/config.mjs');
+  const migDir = fs.mkdtempSync(path.join(tmp, 'mig-'));
+  const cfgFile = path.join(migDir, 'config.json');
+  const savedConfig = process.env.REA_LITE_CONFIG;
+  const savedData = process.env.REA_LITE_DATA_DIR;
+  const savedPresets = process.env.REA_LITE_PRESETS;
+  process.env.REA_LITE_CONFIG = cfgFile;
+  process.env.REA_LITE_DATA_DIR = migDir;
+  delete process.env.REA_LITE_PRESETS;
+  try {
+    fs.writeFileSync(cfgFile, JSON.stringify({ activeBundles: ['nav'], customBundles: { mine: { tools: ['xrefs'] } }, presets: { 老档: { activeBundles: ['native'], lite: 'mild' } } }, null, 2), 'utf8');
+    const first = gw.loadConfig();
+    check('旧副本被读出来', Object.keys(first.presets).join(',') === '老档');
+    check('已落进独立存储', Object.hasOwn(store.readPresetStore(path.join(migDir, 'presets.json')).presets, '老档'));
+    const afterMigrate = JSON.parse(fs.readFileSync(cfgFile, 'utf8'));
+    check('config.json 里的旧副本已清理', !Object.hasOwn(afterMigrate, 'presets'));
+    check('迁移不动别的配置项', JSON.stringify(afterMigrate.activeBundles) === JSON.stringify(['nav']) && Object.hasOwn(afterMigrate.customBundles ?? {}, 'mine'));
+
+    // 第二次读走存储，且不会再写一次 config.json。
+    const stamp = fs.statSync(cfgFile).mtimeMs;
+    const second = gw.loadConfig();
+    check('再读一次仍能拿到预设', Object.keys(second.presets).join(',') === '老档');
+    check('已迁移后不再改写 config.json', fs.statSync(cfgFile).mtimeMs === stamp);
+
+    // 核心承诺：config.json 被删（模拟插件升级替换包目录），预设必须还在。
+    fs.rmSync(cfgFile);
+    const third = gw.loadConfig();
+    check('config.json 没了预设仍在（插件升级不丢预设）', Object.keys(third.presets).join(',') === '老档');
+  } finally {
+    if (savedConfig === undefined) delete process.env.REA_LITE_CONFIG;
+    else process.env.REA_LITE_CONFIG = savedConfig;
+    if (savedData === undefined) delete process.env.REA_LITE_DATA_DIR;
+    else process.env.REA_LITE_DATA_DIR = savedData;
+    if (savedPresets === undefined) delete process.env.REA_LITE_PRESETS;
+    else process.env.REA_LITE_PRESETS = savedPresets;
+  }
+}
+
 // ── 10. 面板新接口 ─────────────────────────────────────────────────────────
 
 console.log('\n面板接口（/maintenance /classify /updates /presets）');
@@ -382,7 +511,10 @@ console.log('\n面板接口（/maintenance /classify /updates /presets）');
     webServer: { register(route) { routes.push(route); return () => {}; } },
   };
   const originalEnv = process.env.REA_LITE_CONFIG;
+  const originalData = process.env.REA_LITE_DATA_DIR;
   process.env.REA_LITE_CONFIG = gwConfig;
+  // 预设存储单独隔离（不跟随 REA_LITE_CONFIG）：见 src/preset-store.mjs。
+  process.env.REA_LITE_DATA_DIR = tmp;
   try {
     apply(ctx, { root: tmpRoot });
     check('仍然只注册一条 prefix 路由', routes.length === 1 && routes[0].path === '/rea-lite');
@@ -451,6 +583,9 @@ console.log('\n面板接口（/maintenance /classify /updates /presets）');
     // ── 预设（/presets） ──
     const stateBefore = await call({ url: '/rea-lite/state' });
     check('状态里带出预设列表（初始为空）', Array.isArray(stateBefore.payload?.presets) && stateBefore.payload.presets.length === 0, JSON.stringify(stateBefore.payload?.presets));
+    // 面板必须能显示预设落点：用户要确认它不在插件目录里、升级插件不会丢。
+    check('状态里带出预设存储位置与可写性', stateBefore.payload?.presetStore?.path === path.join(tmp, 'presets.json') && stateBefore.payload.presetStore.writable === true, JSON.stringify(stateBefore.payload?.presetStore));
+    check('预设存储位置不在插件包内', !String(stateBefore.payload?.presetStore?.path ?? '').includes('node_modules'), String(stateBefore.payload?.presetStore?.path));
 
     const savedPreset = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'save', name: '常用档', note: '只看这两个族' } });
     check('POST /presets save → 200', savedPreset.status === 200 && savedPreset.payload?.saved === true, savedPreset.payload?.error ?? '');
@@ -460,7 +595,9 @@ console.log('\n面板接口（/maintenance /classify /updates /presets）');
     check('预设记下备注与保存时间', presetRow?.note === '只看这两个族' && typeof presetRow?.savedAt === 'string');
     check('预设被标为当前生效（勾选与裁剪档都一致）', presetRow?.current === true);
     const fileAfterPreset = JSON.parse(fs.readFileSync(gwConfig, 'utf8'));
-    check('预设写进 config.presets', Array.isArray(fileAfterPreset.presets?.['常用档']?.activeBundles), JSON.stringify(fileAfterPreset.presets));
+    const storeAfterPreset = JSON.parse(fs.readFileSync(path.join(tmp, 'presets.json'), 'utf8'));
+    check('预设写进独立存储', Array.isArray(storeAfterPreset.presets?.['常用档']?.activeBundles), JSON.stringify(storeAfterPreset.presets));
+    check('config.json 里不再留 presets（唯一归属地在独立存储）', !Object.hasOwn(fileAfterPreset, 'presets'), JSON.stringify(Object.keys(fileAfterPreset)));
 
     await call({ method: 'POST', url: '/rea-lite/active', body: { bundles: ['nav', 'native'] } });
     const savedWithBundles = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'save', name: '常用档' } });
@@ -474,7 +611,15 @@ console.log('\n面板接口（/maintenance /classify /updates /presets）');
     const roundTrip = loadConfig();
     check('读回配置时预设还在', Object.hasOwn(roundTrip.presets ?? {}, '常用档'));
     saveConfig({ ...roundTrip, activeBundles: ['native'] });
-    check('保存勾选后预设仍在 config.json 里', Object.hasOwn(loadConfig().presets ?? {}, '常用档'));
+    check('保存勾选后预设仍在（独立存储）', Object.hasOwn(loadConfig().presets ?? {}, '常用档'));
+
+    // 关键回归：插件升级会整目录替换插件包，config.json 若在包内就随之消失。
+    // 预设存在独立存储，所以即使 config.json 被删掉，预设也必须完好。
+    const configBackup = fs.readFileSync(gwConfig, 'utf8');
+    fs.rmSync(gwConfig);
+    check('config.json 被删后预设仍在（模拟插件升级替换包目录）', Object.hasOwn(loadConfig().presets ?? {}, '常用档'));
+    fs.writeFileSync(gwConfig, configBackup, 'utf8');
+    check('config.json 恢复后预设没被弄丢或重复', Object.keys(loadConfig().presets ?? {}).length >= 1);
 
     await call({ method: 'POST', url: '/rea-lite/active', body: { bundles: [] } });
     const appliedPreset = await call({ method: 'POST', url: '/rea-lite/presets', body: { action: 'apply', name: '常用档' } });
@@ -513,7 +658,37 @@ console.log('\n面板接口（/maintenance /classify /updates /presets）');
   } finally {
     if (originalEnv === undefined) delete process.env.REA_LITE_CONFIG;
     else process.env.REA_LITE_CONFIG = originalEnv;
+    if (originalData === undefined) delete process.env.REA_LITE_DATA_DIR;
+    else process.env.REA_LITE_DATA_DIR = originalData;
   }
+}
+
+// ── 11. 版本错配：新面板 + 旧网关 ──────────────────────────────────────────
+//
+// 插件与网关是两条升级路径：用户可能先换了插件，而网关还指着一份旧副本（插件行 root /
+// REA_LITE_ROOT / 仓库布局里的旧 src/）。新版面板会去读本次新增的 preset-store.mjs，
+// 旧网关没有这个模块 —— 若让它抛，Promise.all 整链失败、设置页直接白屏。
+//
+// 这里只断言**加载器这一层的契约**（缺模块 → 返回 null 而不是抛）：整份「旧网关」没法在
+// 测试里如实重建（旧网关的 config.mjs 也不会 import 新模块，两者是一整套），
+// 而面板的容错正是建立在这个契约上。
+
+console.log('\n版本错配（新面板 + 旧网关）');
+{
+  const mod = await import(pathToFileURL(path.join(REPO, 'dsh-plugin', 'lib', 'index.js')).href);
+  const oldRoot = fs.mkdtempSync(path.join(tmp, 'oldgw-'));
+  fs.mkdirSync(path.join(oldRoot, 'src'), { recursive: true });
+  // 只放一个模块，制造「网关里没有 preset-store.mjs」的情形。
+  fs.copyFileSync(path.join(REPO, 'src', 'presets.mjs'), path.join(oldRoot, 'src', 'presets.mjs'));
+
+  check('缺失的新模块不抛错，返回 null', (await mod.loadOptionalGatewayModule(oldRoot, 'src/preset-store.mjs')) === null);
+  const present = await mod.loadOptionalGatewayModule(oldRoot, 'src/presets.mjs');
+  check('存在的模块照常加载', present !== null && typeof present.capturePreset === 'function');
+  check('缺失模块不会污染缓存（再问一次仍是 null）', (await mod.loadOptionalGatewayModule(oldRoot, 'src/preset-store.mjs')) === null);
+  // 对照：非可选加载对同一个缺失模块必须抛（否则调用方会拿到 undefined 再晚一步炸）。
+  let threw = false;
+  try { await mod.loadGatewayModule(oldRoot, 'src/preset-store.mjs'); } catch { threw = true; }
+  check('loadGatewayModule 对缺失模块仍然抛（只有显式可选的那条路容错）', threw);
 }
 
 try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* 清理失败不影响结论 */ }

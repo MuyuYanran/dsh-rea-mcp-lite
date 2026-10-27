@@ -239,6 +239,8 @@ function baseState(overrides = {}) {
     savings: 97.5,
     live: { toolCount: 3, tokens: 700 },
     server: { known: true, phase: 'active', toolCount: 3 },
+    // 预设存储位置（不在插件目录里，升级插件不会清掉）。
+    presetStore: { path: '/home/u/.dsh/rea-lite/presets.json', dir: '/home/u/.dsh/rea-lite', exists: true, count: 0, writable: true },
     updates: {
       self: { remote: 'origin', checkOnStart: false, autoApply: false },
       rea: { registry: 'https://registry.npmjs.org/rea-agents', checkOnStart: true, autoApply: false },
@@ -563,6 +565,26 @@ console.log('\n预设');
   check('渲染出保存按钮与名字输入框', text.includes('存下当前勾选') && hasProp(tree, 'placeholder', '预设名'));
   check('预设分区有二级子菜单（全部/按时间）', text.includes('全部预设') && text.includes('按保存时间'));
   check('预设分区有名字筛选框', hasProp(tree, 'placeholder', '按名字筛选预设'));
+  // 预设的落点必须显示出来：用户要能确认它不在插件目录里、升级插件不会丢。
+  check('预设分区显示存储位置', text.includes('存放位置') && text.includes('/home/u/.dsh/rea-lite/presets.json'));
+  check('存储可写时说明「更新插件不会清掉」', text.includes('更新插件不会清掉它'));
+}
+{
+  // 存储不可写：要当场说清保存会失败，而不是等用户点了保存才报错。
+  const { component, runtime } = buildComponent();
+  const locked = baseState({ presetStore: { path: '/ro/presets.json', dir: '/ro', exists: false, count: 0, writable: false } });
+  const tree = runtime.render(component, [[[HOOK.state, locked]], [[HOOK.tab, 'presets']]]);
+  const text = textOf(tree).join(' ');
+  check('存储不可写时渲染红色告警', text.includes('保存会失败') && text.includes('/ro/presets.json'));
+}
+{
+  // 旧宿主半不返回 presetStore：不渲染那一行，且不能出现 undefined。
+  const { component, runtime } = buildComponent();
+  const legacy = baseState();
+  delete legacy.presetStore;
+  const tree = runtime.render(component, [[[HOOK.state, legacy]], [[HOOK.tab, 'presets']]]);
+  const text = textOf(tree).join(' ');
+  check('旧宿主半没有 presetStore 时不渲染存储行，也不出 undefined', !text.includes('存放位置') && !text.includes('undefined'));
 }
 {
   // 旧宿主半不返回 presets：必须按空列表渲染（取错属性 = 白屏）。

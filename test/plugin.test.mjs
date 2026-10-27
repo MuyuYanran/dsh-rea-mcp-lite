@@ -124,7 +124,11 @@ function loadClientBundle() {
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'rea-lite-panel-test-'));
 const tempConfig = path.join(tmpDir, 'config.json');
 const originalConfigEnv = process.env.REA_LITE_CONFIG;
+const originalDataEnv = process.env.REA_LITE_DATA_DIR;
 process.env.REA_LITE_CONFIG = tempConfig;
+// 预设存储**不跟着** REA_LITE_CONFIG 走（见 src/preset-store.mjs），必须单独指到临时目录，
+// 否则测试会把预设写进真实用户目录 ~/.dsh/rea-lite/。
+process.env.REA_LITE_DATA_DIR = tmpDir;
 const initialConfig = {
   mode: 'gateway',
   activeBundles: [],
@@ -495,6 +499,8 @@ try {
 } finally {
   if (originalConfigEnv === undefined) delete process.env.REA_LITE_CONFIG;
   else process.env.REA_LITE_CONFIG = originalConfigEnv;
+  if (originalDataEnv === undefined) delete process.env.REA_LITE_DATA_DIR;
+  else process.env.REA_LITE_DATA_DIR = originalDataEnv;
   try {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   } catch {

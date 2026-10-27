@@ -15,7 +15,9 @@ fs.writeFileSync(CFG, JSON.stringify({ ...orig, activeBundles: [], persistRuntim
 
 const child = spawn(process.execPath, [path.join(ROOT, 'src', 'proxy.mjs')], {
   stdio: ['pipe', 'pipe', 'pipe'],
-  env: { ...process.env, REA_LITE_CONFIG: CFG },
+  // 预设存储不跟随 REA_LITE_CONFIG（见 src/preset-store.mjs），单独指到同一个临时目录，
+  // 否则子进程会把预设写进真实用户目录。
+  env: { ...process.env, REA_LITE_CONFIG: CFG, REA_LITE_DATA_DIR: TMP },
 });
 
 let buf = '';

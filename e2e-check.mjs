@@ -11,6 +11,7 @@
 // 而不是把某台机器的绝对路径写死在脚本里。
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 const ROOT = path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
@@ -107,9 +108,12 @@ async function ensureFixtures(dir) {
 
 // ── 起代理 ──────────────────────────────────────────────────────────────────
 const CONFIG = path.join(ROOT, 'config.json');
+// 预设存储不跟 REA_LITE_CONFIG 走（见 src/preset-store.mjs）：本脚本用的是**真实** config.json，
+// 若不隔离，e2e 里存/删预设会动到用户的真实预设存储。
+const DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'rea-lite-e2e-data-'));
 const child = spawn(process.execPath, [path.join(ROOT, 'src', 'proxy.mjs')], {
   stdio: ['pipe', 'pipe', 'pipe'],
-  env: { ...process.env, REA_LITE_CONFIG: CONFIG },
+  env: { ...process.env, REA_LITE_CONFIG: CONFIG, REA_LITE_DATA_DIR: DATA_DIR },
 });
 
 let buf = '';
@@ -191,6 +195,7 @@ try {
   fail += 1;
 } finally {
   child.kill();
+  try { fs.rmSync(DATA_DIR, { recursive: true, force: true }); } catch {}
 }
 
 if (skipped.length > 0) console.log(`\n本平台不可用（不算失败）：${skipped.join('、')}`);

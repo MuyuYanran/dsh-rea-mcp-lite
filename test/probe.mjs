@@ -10,6 +10,14 @@ import { META_TOOLS } from '../src/meta-tools.mjs';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const PROXY = path.join(HERE, '..', 'src', 'proxy.mjs');
 const TEST_CONFIG = path.join(HERE, 'probe-config.json');
+/**
+ * 预设存储的隔离目录。
+ *
+ * 预设不跟 REA_LITE_CONFIG 走（见 src/preset-store.mjs）：跟着走的话，config.json 装在
+ * 插件包内时预设也会进包内，插件升级一换包就没了 —— 那正是要修的问题。
+ * 代价是本脚本必须**单独**告诉代理把预设放哪，否则它会写进真实用户目录 ~/.dsh/rea-lite/。
+ */
+const TEST_DATA_DIR = path.join(HERE, 'probe-data');
 /** 元工具个数从定义处派生，不写死——加元工具时测试不该红。 */
 const META_COUNT = META_TOOLS.length;
 const META_NAMES_LIST = META_TOOLS.map((t) => t.name);
@@ -91,7 +99,7 @@ class McpClient {
 
 const child = spawn(process.execPath, [PROXY], {
   stdio: ['pipe', 'pipe', 'pipe'],
-  env: { ...process.env, REA_LITE_CONFIG: TEST_CONFIG },
+  env: { ...process.env, REA_LITE_CONFIG: TEST_CONFIG, REA_LITE_DATA_DIR: TEST_DATA_DIR },
   windowsHide: true,
 });
 child.stderr.on('data', (chunk) => process.stderr.write(`  [proxy] ${chunk}`));
@@ -201,11 +209,14 @@ try {
   const presetSavedText = textOf(presetSaved.result);
   check('save-preset 存下当前勾选', !presetSaved.result?.isError && presetSavedText.includes('probe-preset'), presetSavedText.split('\\n')[0] ?? '');
   const presetFile = JSON.parse(fs.readFileSync(TEST_CONFIG, 'utf8'));
+  const presetStore = JSON.parse(fs.readFileSync(path.join(TEST_DATA_DIR, 'presets.json'), 'utf8'));
   check(
-    '预设落进 config.presets（勾选与裁剪档都在）',
-    JSON.stringify(presetFile.presets?.['probe-preset']?.activeBundles) === JSON.stringify(['nav', 'evidence']) && typeof presetFile.presets?.['probe-preset']?.lite === 'string',
-    JSON.stringify(presetFile.presets?.['probe-preset'] ?? null),
+    '预设落进独立存储（勾选与裁剪档都在）',
+    JSON.stringify(presetStore.presets?.['probe-preset']?.activeBundles) === JSON.stringify(['nav', 'evidence']) && typeof presetStore.presets?.['probe-preset']?.lite === 'string',
+    JSON.stringify(presetStore.presets?.['probe-preset'] ?? null),
   );
+  // 预设写进独立存储后，config.json 不该再持有 presets：两份数据会各自漂移。
+  check('config.json 里不再留 presets（唯一归属地在独立存储）', !Object.hasOwn(presetFile, 'presets'));
   check('写预设没弄丢 child（怎么拉起 REA 不能丢）', presetFile.child !== undefined);
 
   client.notifications.length = 0;
@@ -238,5 +249,6 @@ try {
   if (failed.length) console.log('失败项：\n' + failed.map((f) => `- ${f.name}`).join('\n'));
   try { child.kill(); } catch {}
   try { fs.unlinkSync(TEST_CONFIG); } catch {}
+  try { fs.rmSync(TEST_DATA_DIR, { recursive: true, force: true }); } catch {}
   process.exit(failed.length ? 1 : 0);
 }

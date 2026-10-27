@@ -259,11 +259,24 @@ node src/cli.mjs preset remove 原生深挖
 - **不记 `child`**。子进程命令与环境变量是本机专属（`JAVA_HOME`、外部工具路径），跟着预设走等于把一台机器的路径读到另一台上。
 - **引用的族没了就跳过并报出来**。预设引用的自定义组被删掉、或预设来自另一台机器时，读取只加载存在的族，并明确列出跳过了哪些；不会静默加载一个空的组。
 - **裁剪档一起存**。`lite` 档位会改变每个工具定义的长度，所以成本口径跟着变；面板会提示该重新生成快照。
+- **存在插件目录之外**。预设不写进 `config.json`，而是单独存一份（见下），所以**更新插件不会把预设清掉**。
 
-配置里的样子：
+预设的落点是独立文件，**不跟随 `config.json` 的位置**：
+
+```
+<用户数据根>/rea-lite/presets.json      用户数据根 = DSH_HOME，未设时用 ~/.dsh
+```
+
+为什么单独存：`config.json` 的位置由 `REA_LITE_CONFIG` 决定，没设时落在「网关根目录」——
+而从 npm 装的网关根就在插件包**里面**（`node_modules/dsh-rea-lite-panel/gateway/`）。
+插件一升级，整个包目录被替换，写在包内的任何东西都会跟着消失。预设是你手写的数据，不该这样丢。
+这也和预设本身的性质相符：它只记「勾了哪些族 + 用哪档裁剪」，不含任何本机路径，本来就可以跨安装、跨 profile 复用。
+
+文件内容：
 
 ```json
 {
+  "version": 1,
   "presets": {
     "原生深挖": {
       "activeBundles": ["nav", "native", "evidence"],
@@ -273,6 +286,10 @@ node src/cli.mjs preset remove 原生深挖
   }
 }
 ```
+
+- **老版本升级上来会自动迁移**：若 `config.json` 里还留着 `presets`，第一次读取（代理启动、面板打开、CLI 跑一下都算）就会把它搬进独立存储，并清掉 `config.json` 里那份副本——两份数据会各自漂移，所以只留一处。
+- `preset` 子命令与面板都会显示实际落点，方便备份。
+- 要换位置：`REA_LITE_PRESETS` 直接指定文件，或 `REA_LITE_DATA_DIR` 指定目录。
 
 预设名是最长 48 个字符的自由文本（中文可以），不能含 `\ / : * ? " < > |` 或控制字符——它要能安全地当 JSON 键、也能原样传给命令行；同名保存即覆盖。
 
@@ -387,7 +404,7 @@ mcp__rea__bundles { "action": "remove-preset", "preset": "原生深挖" }
 | **概览** | 此刻模型看到什么：元工具成本、已勾选族成本、合计与省下多少、会话内实测值；下面一条**上下文构成条**（已用 vs 省下）与快捷操作 | — |
 | **功能族** | 勾选功能族，每个族标注工具数与约 token | 二级：全部 / 内置 / 自定义；筛选片：全部 / 已加载 / 未加载 / 需环境；名字筛选框；每页 6 个 |
 | **分组** | 自定义分组（可视化编辑：左边全部工具、右边已选、可拖可勾） | — |
-| **预设** | 命名预设：存下当前勾选与裁剪档，一键读取 | 二级：全部预设 / 按保存时间；名字筛选框；每页 5 个 |
+| **预设** | 命名预设：存下当前勾选与裁剪档，一键读取 | 二级：全部预设 / 按保存时间；名字筛选框；每页 5 个；**显示存放位置**（在插件目录之外，升级插件不会清掉） |
 | **工具** | 按名字或说明搜工具，看它属于哪些族、要花多少上下文 | 每页 12 个 |
 | **更新与体检** | 本仓库 / REA 本体 / 工具覆盖三块结论 + 写动作 + 自动更新开关 | 「向 REA 实时查询」开关 |
 
@@ -457,13 +474,13 @@ dsh plugin --profile desktop add "https://github.com/MuyuYanran/dsh-rea-mcp-lite
 | `toolCallTimeoutMs` | `600000` | 单次工具调用超时（反编译类工具有时会跑很久） |
 | `customBundles` | `{}` | 用户自定义族：`{ id: { label?, hint?, tools: [...] } }` |
 | `bundleExtras` | `{}` | 自动归类追加到内置族的工具：`{ "capture": ["inspect_x"] }`（只追加，不替换） |
-| `presets` | `{}` | 命名预设：`{ "名字": { activeBundles, lite?, shortDescription?, metaTools?, note?, savedAt? } }`（不记 `child`） |
+| `presets` | — | **已移出 `config.json`**：预设存在独立文件 `<用户数据根>/rea-lite/presets.json`，这样更新插件不会清掉它们（详见「命名预设」）。这里只作为一次性迁移来源：读到旧副本就搬走并清理 |
 | `updates.self` | `{ remote: "origin", checkOnStart: false }` | 本仓库更新；`autoApply: true` 才会在启动时自动快进 |
 | `updates.rea` | `{ registry: "https://registry.npmjs.org/rea-agents", checkOnStart: false }` | REA 本体更新；`autoApply: true` 才会在启动时自动升级 |
 | `child` | — | 怎么拉起真正的 REA：`command` / `args` / `env` |
 
 - `lite` 的 `mild` 去掉 `pattern`/`format`/`minLength`… 并把描述截到 80 字；`aggressive` 再砍 `examples`/`default` 并截到 50 字。被裁掉的约束 REA 服务端仍会校验，报参数错误时用 `tool_schema` 取原始 schema。
-- 环境变量：`REA_LITE_CONFIG` 指定配置文件位置，`REA_LITE_LAUNCHER` 覆盖 REA 启动器路径。
+- 环境变量：`REA_LITE_CONFIG` 指定配置文件位置，`REA_LITE_LAUNCHER` 覆盖 REA 启动器路径；`REA_LITE_PRESETS` / `REA_LITE_DATA_DIR` 指定预设存储（见上）。
 - `child.env` 会合并进 REA 子进程的环境，是给 REA 指定外部工具的入口（`REA_TSHARK_COMMAND` 等）。
   **改动 `child`（command/args/env）会触发子进程热重启**：代理杀掉旧 REA、用新配置重新 spawn、
   重放握手、重取工具列表，再向客户端发 `notifications/tools/list_changed`——
@@ -472,10 +489,10 @@ dsh plugin --profile desktop add "https://github.com/MuyuYanran/dsh-rea-mcp-lite
 ## 自检
 
 ```bash
-node test/probe.mjs         # 27 项集成测试：握手 / 元工具 / 搜索 / 转发 / 热加载 / 热卸载 / 全量 / 自定义族 / 预设
+node test/probe.mjs         # 28 项集成测试：握手 / 元工具 / 搜索 / 转发 / 热加载 / 热卸载 / 全量 / 自定义族 / 预设
 node test/plugin.test.mjs   # 91 项插件自检：假 Cordis 上下文驱动面板 API + 渲染设置页
-node test/maintenance.test.mjs # 136 项：归类打分 / 追加归类 / 工具覆盖 / 版本比较 / 临时真仓库的 git 快进 / 预设 / 面板新接口
-node test/panel-render.test.mjs # 37 项：用最小 React 运行时真的重渲染设置页（含「更新与体检」「预设」各分支）
+node test/maintenance.test.mjs # 163 项：归类打分 / 追加归类 / 工具覆盖 / 版本比较 / 临时真仓库的 git 快进 / 预设 / 预设独立存储 / 面板新接口
+node test/panel-render.test.mjs # 61 项：用最小 React 运行时真的重渲染设置页（含「更新与体检」「预设」各分支）
 node test/reload-child.mjs  # 6 项子进程热重启：改 child.env → 重启 REA → 重新握手 → 重取工具列表 → 通知客户端
 node test/check-config.mjs  # 用真实 config.json 拉起 REA，确认全部工具可达
 node e2e-check.mjs          # 9 项外部工具验收：真实代理 → 真实 REA → 真实 objdump/rizin/tshark/WABT/SQLite/Frida/Cutter

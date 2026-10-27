@@ -96,6 +96,23 @@ export async function loadGatewayModule(root, relative) {
   return module;
 }
 
+/**
+ * 可选加载：模块不存在时返回 null，而不是抛。
+ *
+ * 为什么需要它：插件与网关是两条升级路径。用户完全可能先把插件换成新版，而网关还指着
+ * 一份旧副本（插件行 `root` / REA_LITE_ROOT 指向旧目录，或仓库布局里是旧 src/）。
+ * 那时新版面板去 require 一个旧网关没有的模块，`fs.statSync` 会 ENOENT —— 若让它抛，
+ * Promise.all 整条链失败，设置页直接白屏。所以凡是**新增**的网关模块都走这里，
+ * 让「新面板 + 旧网关」退化成旧行为而不是打不开。
+ */
+export async function loadOptionalGatewayModule(root, relative) {
+  try {
+    return await loadGatewayModule(root, relative);
+  } catch {
+    return null;
+  }
+}
+
 // ── 只读探测 ─────────────────────────────────────────────────────────────────
 
 /** config.json 是否可写：先探文件，文件不存在则探目录（首次使用还没写过配置）。 */
@@ -401,6 +418,9 @@ export function computeState(input) {
     server: input.server ?? { known: false, phase: 'unknown' },
     // 命名预设（已拍成面板要的形状，见 buildState）。
     presets: Array.isArray(input.presets) ? input.presets : [],
+    // 预设存储位置：预设不放在 config.json 里（那会随插件升级一起被替换掉），
+    // 面板要把落点告诉用户，他才知道东西存在哪、升级不会丢。
+    presetStore: input.presetStore ?? null,
     // 更新开关（面板展示与写回都用它）。
     updates: input.updates ?? {},
     warnings,
@@ -469,11 +489,13 @@ export function apply(ctx, config) {
         issue: `这里不像 rea-mcp-lite 网关（缺 src/bundles.mjs）：${root}。请把本插件与网关放在同一仓库，或设置 REA_LITE_ROOT。`,
       });
     }
-    const [{ effectiveBundles, ALL_BUNDLE, extrasOf }, { loadConfig, CONFIG_PATH }, { readSnapshot, tokensOfChars }, { listPresets, presetReport, presetCost, presetIsCurrent }] = await Promise.all([
+    const [{ effectiveBundles, ALL_BUNDLE, extrasOf }, { loadConfig, CONFIG_PATH }, { readSnapshot, tokensOfChars }, { listPresets, presetReport, presetCost, presetIsCurrent }, storeModule] = await Promise.all([
       loadGatewayModule(root, 'src/bundles.mjs'),
       loadGatewayModule(root, 'src/config.mjs'),
       loadGatewayModule(root, 'src/snapshot.mjs'),
       loadGatewayModule(root, 'src/presets.mjs'),
+      // 可选：旧网关没有这个模块，那就退化成「不显示存储位置」，别把整页拖垮。
+      loadOptionalGatewayModule(root, 'src/preset-store.mjs'),
     ]);
     const configPath = CONFIG_PATH ?? path.join(root, 'config.json');
     const config = loadConfig();
@@ -520,6 +542,7 @@ export function apply(ctx, config) {
       updates: config.updates ?? {},
       extras: typeof extrasOf === 'function' ? extrasOf(table, config.bundleExtras) : [],
       presets,
+      presetStore: typeof storeModule?.describePresetStore === 'function' ? storeModule.describePresetStore() : null,
     });
   };
 
@@ -560,14 +583,27 @@ export function apply(ctx, config) {
   const savePreset = async (body) => {
     const root = resolveGatewayRoot(configuredRoot);
     if (!isGatewayRoot(root)) throw new Error(`找不到 rea-mcp-lite 网关：${root}`);
-    const [{ effectiveBundles, ALL_BUNDLE }, { loadConfig, saveConfig, CONFIG_PATH, configPath }, { readSnapshot }, { normalizePresetName, capturePreset, applyPreset, removePreset }] = await Promise.all([
+    const [{ effectiveBundles, ALL_BUNDLE }, { loadConfig, saveConfig, CONFIG_PATH, configPath }, { readSnapshot }, { normalizePresetName, capturePreset, applyPreset, removePreset }, storeModule] = await Promise.all([
       loadGatewayModule(root, 'src/bundles.mjs'),
       loadGatewayModule(root, 'src/config.mjs'),
       loadGatewayModule(root, 'src/snapshot.mjs'),
       loadGatewayModule(root, 'src/presets.mjs'),
+      loadOptionalGatewayModule(root, 'src/preset-store.mjs'),
     ]);
+    // 预设写进独立存储，所以要探的是**存储**的可写性；探 config.json 会答错问题
+    // （config.json 可写而存储目录不可写时，会一路走到写失败才报错）。
+    // 旧网关没有 preset-store.mjs（storeModule 为 null）：那时预设还在 config.json 里，
+    // 退回去探 config.json，保持向后兼容。
+    const describeStore = storeModule !== null && typeof storeModule.describePresetStore === 'function' ? storeModule.describePresetStore : null;
     const configPathNow = typeof configPath === 'function' ? configPath() : CONFIG_PATH;
-    if (!probeWritable(configPathNow)) throw new Error(`配置文件不可写：${configPathNow}`);
+    if (describeStore !== null) {
+      const storeNow = describeStore();
+      if (storeNow.writable === false) {
+        throw new Error(`预设存储不可写：${storeNow.path}。请检查该目录的权限，或把 REA_LITE_DATA_DIR 指到可写位置。`);
+      }
+    } else if (!probeWritable(configPathNow)) {
+      throw new Error(`配置文件不可写：${configPathNow}`);
+    }
     const current = loadConfig();
     const action = String(body?.action ?? 'save');
 

@@ -93,12 +93,15 @@ DSH 内置客户端会自动协商到这个版本。代理必须满足（否则�
 
 `effectiveBundles(custom, extras)` 依次合并：内置族 → 自定义族 → 追加归类。让用户改写内置族会在升级时产生难以解释的漂移；自定义族是用户自己的视角，同一个工具可以既在 `native` 又在自定义族里（内置族本来就有重叠）。
 
-**第四层是「预设」（`src/presets.mjs`，存进 `config.presets`），和前三层不是同类**：前三层存的是**定义**，预设存的是**选择** —— 勾了哪些族 + `lite`/`shortDescription`/`metaTools` 三档开关，用来一键切回。
+**第四层是「预设」（`src/presets.mjs` 的纯逻辑 + `src/preset-store.mjs` 的存储），和前三层不是同类**：前三层存的是**定义**，预设存的是**选择** —— 勾了哪些族 + `lite`/`shortDescription`/`metaTools` 三档开关，用来一键切回。
 
 - 三条写入口（CLI 的 `preset` 子命令、面板 `POST /rea-lite/presets`、元工具 `bundles` 的 `save-preset`/`load-preset`）**必须共用 presets.mjs 的纯函数**；判断写三遍迟早分叉（归类那边已经踩过一次）。
-- **预设永远不记 `child`**：子进程命令与 env 是本机专属（`JAVA_HOME`、外部工具路径），跟着预设走 = 把一台机器的路径读到另一台上。
+- **预设不许记 `child`**：子进程命令与 env 是本机专属（`JAVA_HOME`、外部工具路径），跟着预设走 = 把一台机器的路径读到另一台上。
 - 读取时**引用的族不存在就跳过并报 `missing`**，族在但这一版 REA 没有它的工具则报 `unavailable` —— 两者用户要做的事不同，别合成一个数。
-- `saveConfig` 必须一起写回 `presets`：漏了它，用户下一次勾选就把存好的几套视角全抹掉（与 `bundleExtras` 同一类坑）。
+- **预设存在独立文件里，不在 `config.json`**（`preset-store.mjs`）：`<用户数据根>/rea-lite/presets.json`，用户数据根 = `DSH_HOME` 或 `~/.dsh`。这是 2026-10-27 的修复，起因见下。
+- 预设存储路径**故意不跟随 `REA_LITE_CONFIG`**。跟着走的话，`config.json` 装在插件包内时预设也会进包内 —— 等于没修。**改这里时别"顺手"把它接到 config 目录上。**
+- `saveConfig` 只在 `config.presets !== undefined` 时才写存储；不关心预设的调用方（只改勾选/归类）传进来的对象没有这个键，就**不该动**用户的预设。
+- 迁移：老版本的 `config.json` 里的 `presets` 会在**第一次 `loadConfig`**（代理启动、面板打开、跑一次 CLI 都算）时搬进独立存储，并清掉旧副本。两份数据会各自漂移，所以只留一处。顺序是「先落盘、再清旧副本」，中途失败最坏是旧副本还在。
 - 预设带 `lite` 时，读取会改成本口径：代理会重刷快照并发 `list_changed`，面板会提示数字已变，别把这些当成异常。
 
 ### 7. 自动更新默认全关，写动作必须显式
@@ -113,6 +116,25 @@ DSH 内置客户端会自动协商到这个版本。代理必须满足（否则�
 ### 8. `CONFIG_PATH` 常量会把真实配置写脏
 
 `config.mjs` 导出的 `CONFIG_PATH` 是**模块求值那一刻**的路径；之后改 `REA_LITE_CONFIG` 它不会跟着变。第一版 `saveConfig` 用了常量，自检脚本于是把真实 `config.json` 写了 `bundleExtras`。现在读写都走 `configPath()`（每次读环境变量）。在同进程里换配置目录时，别再引用常量。
+
+### 8b. 自检脚本必须**同时**隔离 `REA_LITE_CONFIG` 与 `REA_LITE_DATA_DIR`
+
+预设存储与配置文件是**两条独立的路径**（见第 6 条：预设故意不跟随 `REA_LITE_CONFIG`）。
+所以「只设 `REA_LITE_CONFIG` 指向临时目录」已经不足以隔离自检了：
+
+```js
+process.env.REA_LITE_CONFIG   = <临时目录>/config.json
+process.env.REA_LITE_DATA_DIR = <同一个临时目录>        // ← 少了这行，预设会写进真实用户目录
+```
+
+2026-10-27 踩过一次：改完 `config.mjs` 直接跑 `test/maintenance.test.mjs`，
+`~/.dsh/rea-lite/presets.json` 里出现了测试用的「漂移档」「带自定义组」。
+（当时真实 `config.json` 的 `presets` 是空的，没有用户数据受损，但这条路必须堵死。）
+
+- 需要指定到具体文件时用 `REA_LITE_PRESETS`（优先级更高）。
+- 收尾时两个变量都要还原（原来未定义就 `delete`）。
+- 合成子进程的脚本（`test/probe.mjs`、`test/reload-child.mjs`、`e2e-check.mjs`）要把这两个变量一起放进子进程 `env`，并清理临时目录。
+- 已按此隔离：`test/maintenance.test.mjs`、`test/plugin.test.mjs`、`test/probe.mjs`、`test/reload-child.mjs`、`e2e-check.mjs`。
 
 ### 9. 发 npm 与上架市场：包内的网关副本是生成物，别当源码改
 
@@ -142,7 +164,8 @@ DSH 内置客户端会自动协商到这个版本。代理必须满足（否则�
 | `src/lite.mjs` | schema 裁剪与成本口径（`projectTool` / `modelVisibleChars` / `estimateTokens`） | 成本口径必须与 DSH 的 LLM 层一致：只算 name + description + inputSchema |
 | `src/snapshot.mjs` | 工具成本快照生成 | `data/tools-model.json` 是派生数据，可随时重生成 |
 | `src/config.mjs` | 配置读写与默认值 | 加新配置键时同步 `config.example.json`；读写走 `configPath()` 而非 `CONFIG_PATH` |
-| `src/presets.mjs` | 命名预设：名字校验、拍取、读取（含 missing/unavailable）、成本、删除；纯函数 | 三处写入口共用它；预设**不许**记 `child`；`presets` 必须跟着 `saveConfig` 走（见第 6 条） |
+| `src/presets.mjs` | 命名预设：名字校验、拍取、读取（含 missing/unavailable）、成本、删除；纯函数、不碰磁盘 | 三处写入口共用它；预设**不许**记 `child`；纯逻辑别混进磁盘读写（那在 preset-store.mjs） |
+| `src/preset-store.mjs` | 预设的落盘位置与读写：路径解析、原子写、坏文件容错、展示信息 | 路径**故意不跟随 `REA_LITE_CONFIG`**（跟随就会随插件包一起被替换掉）；`REA_LITE_PRESETS`/`REA_LITE_DATA_DIR` 可覆盖；改这里必跑 `test/maintenance.test.mjs` 的「预设独立存储」一节 |
 | `src/classify.mjs` | 智能归类：词元稀有度打分、置信度分级、写入 `bundleExtras` | 别退回硬编码关键词表；置信度必须要求领先第二名 |
 | `src/updates.mjs` | 更新检查与应用（git 快进 / npm 升级 / 工具覆盖差集） | 检查必须只读；快进只在干净且无本地提交时执行 |
 | `src/maintenance.mjs` | 把体检/更新/归类/快照串成流水线，CLI 与面板与元工具共用 | 写动作只在这里实现一份，别在入口处复制判断 |
@@ -165,9 +188,9 @@ DSH 内置客户端会自动协商到这个版本。代理必须满足（否则�
 
 ```bash
 node test/plugin.test.mjs    # 91 项：假 Cordis 上下文驱动面板 API + 渲染设置页（不起 REA）
-node test/maintenance.test.mjs # 136 项：归类打分、追加归类、工具覆盖、版本比较、临时真仓库的 git 快进、预设、面板新接口
-node test/panel-render.test.mjs # 57 项：最小 React 运行时重渲染整页（plugin.test.mjs 只覆盖首屏）
-node test/probe.mjs          # 27 项：真代理 + 真 REA，握手/元工具/转发/热加载/自定义族/预设
+node test/maintenance.test.mjs # 163 项：归类打分、追加归类、工具覆盖、版本比较、临时真仓库的 git 快进、预设、预设独立存储、面板新接口
+node test/panel-render.test.mjs # 61 项：最小 React 运行时重渲染整页（plugin.test.mjs 只覆盖首屏）
+node test/probe.mjs          # 28 项：真代理 + 真 REA，握手/元工具/转发/热加载/自定义族/预设
 node test/reload-child.mjs   # 6 项：改 child.env → 重启 → 重新握手 → 重取工具 → 通知客户端
 node test/check-config.mjs   # 用真实 config.json 拉起 REA，确认全部工具可达
 node e2e-check.mjs           # 9 项：真实代理 → 真实 REA → 真实外部二进制
@@ -204,7 +227,9 @@ node e2e-check.mjs           # 9 项：真实代理 → 真实 REA → 真实外
 | `update-rea --apply` 后工具列表还是旧的 | 子进程没重启 | 代理自己会重启；面板/CLI 单独跑时需重启 DSH 或让代理重连 |
 | 面板「更新与体检」结论显示「无法检查：这个目录不是 git 仓库」 | 网关目录不在 git 仓库里（plugin 的 root 指错） | 检查插件行 `config.root` / `REA_LITE_ROOT` |
 | 读取预设后提示「引用的族已不存在」 | 预设里的自定义组被删了，或预设是从别的机器拷来的 | 正常行为：读取时跳过它；重建那个组，或按当前勾选重存一次预设 |
-| 保存勾选后预设全没了 | `saveConfig` 漏写 `presets`（见第 6 条） | 检查 `src/config.mjs` 的 `saveConfig` 是否带上 `presets` |
+| 更新插件后预设全没了 | 预设曾被写进 `config.json`，而 npm 安装时它在插件包内，升级整目录替换 | 已修：预设存在 `<用户数据根>/rea-lite/presets.json`。若还复现，检查 `presetStorePath()` 是否被改回跟随 `REA_LITE_CONFIG`（见第 6 条） |
+| 跑完自检后 `~/.dsh/rea-lite/presets.json` 里冒出测试预设 | 测试只隔离了 `REA_LITE_CONFIG`，没有隔离预设存储（二者路径相互独立） | 在测试里**同时**设 `REA_LITE_DATA_DIR=<临时目录>`，收尾一并还原（见第 6 条） |
+| 保存勾选后预设全没了 | `saveConfig` 误把 `presets` 当空值写回存储 | `saveConfig` 只在 `config.presets !== undefined` 时才写存储；检查调用方是不是传了个空对象而不是不带这个键 |
 
 ---
 

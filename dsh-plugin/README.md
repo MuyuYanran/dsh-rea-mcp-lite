@@ -68,4 +68,4 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 - 只管「加载哪些族」，不管 MCP 服务器的启停 —— 那是「MCP 管理」的事。
 - 只服务回环地址：`/rea-lite/*` 对非 `127.0.0.1`/`::1` 来源一律 403。
 - 只写网关 `config.json` 的这几个字段：`activeBundles`（勾选）、`customBundles`（自定义分组）、`bundleExtras`（归类结果）、`presets`（预设）、`updates`（更新开关）；其余字段原样保留（尤其 `child`）。
-- 自检：`node test/plugin.test.mjs`（91 项，用假 Cordis 上下文驱动真实的 `apply()`）+ `node test/maintenance.test.mjs`（136 项，含预设与其它面板新增接口）+ `node test/panel-render.test.mjs`（57 项，真的重渲染整页，含六个分区与筛选/分页）。
+- 自检：`node test/plugin.test.mjs`（91 项，用假 Cordis 上下文驱动真实的 `apply()`）+ `node test/maintenance.test.mjs`（163 项，含预设、预设独立存储与其它面板新增接口）+ `node test/panel-render.test.mjs`（61 项，真的重渲染整页，含六个分区与筛选/分页）。
