@@ -235,12 +235,15 @@ try {
   check('config.json 写入了 activeBundles', JSON.stringify(written.activeBundles) === JSON.stringify(['web', 'js']), JSON.stringify(written.activeBundles));
   check('其余配置字段原样保留', written.child.args[0] === 'x.mjs' && written.lite === 'mild');
   check('保存后的状态反映勾选', saveRes.payload.state.activeBundles.join(',') === 'web,js');
+  // 成本口径是 Math.round(chars / 3.6)：**取整不可加**。「逐族取整再相加」与「并集一起取整」
+  // 最多差 1 个 token，差值取决于 chars 的小数部分。写成严格等式等于把取整巧合当契约 ——
+  // 2026-10-30 升到 REA 6.8.0 时正好差 1，那是版本演进不是回归。
+  const pickedParts = saveRes.payload.state.bundles.filter((b) => b.id === 'web' || b.id === 'js');
+  const sumOfParts = saveRes.payload.state.metaTokens + pickedParts.reduce((sum, b) => sum + b.tokens, 0);
   check(
-    '成本 = 元工具 + web + js',
-    saveRes.payload.state.activeTokens ===
-      saveRes.payload.state.metaTokens +
-        saveRes.payload.state.bundles.filter((b) => b.id === 'web' || b.id === 'js').reduce((sum, b) => sum + b.tokens, 0),
-    `active=${saveRes.payload.state.activeTokens}`,
+    '成本 = 元工具 + web + js（逐族取整允许差 1）',
+    Math.abs(saveRes.payload.state.activeTokens - sumOfParts) <= 1,
+    `active=${saveRes.payload.state.activeTokens} 逐族相加=${sumOfParts}`,
   );
 
   const allRes = await call(handler, { method: 'POST', url: '/rea-lite/active', body: { bundles: ['all'] } });

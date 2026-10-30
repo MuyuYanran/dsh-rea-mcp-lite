@@ -22,29 +22,30 @@ definitions the model sees*, not how big each one is.
 
 ## What it saves
 
-Measured on **REA 6.7.0** (`REA_MCP_INPUT_SCHEMA_PROFILE=compact`, `lite: "mild"`):
+Measured on **REA 6.8.0** (`REA_MCP_INPUT_SCHEMA_PROFILE=compact`, `lite: "mild"`):
 
 | Scenario | Tools visible to the model | Approx. tokens |
 | --- | --- | --- |
 | **Default (meta-tools only)** | 5 | **624** |
-| Everything loaded (after this proxy's trimming) | 212 | 26.9k |
-| Without this proxy (direct REA, model-visible part) | 207 | ~53k |
+| Everything loaded (after this proxy's trimming) | 234 | 35.5k |
+| Without this proxy (direct REA, model-visible part) | 229 | ~75k |
 
 For an earlier version (REA 6.4.0, 170 tools) the same numbers were ~70k tokens direct and ~49k
-through the proxy fully loaded. 6.7.0 has *more* tools but costs *less*, because the newer
-`compact` schema profile trims harder — see "Version adaptation".
+through the proxy fully loaded; by 6.7.0 that became 207 tools and ~26.9k tokens through the proxy
+(the newer `compact` schema profile trimmed harder). 6.8.0 is back up to 229 tools and both sides
+grew by roughly 40% — the saving is still around half; see "Version adaptation".
 
 ## Why this is not "schema compression"
 
-Measured on the actual REA 6.7.0 `tools/list` payload (`REA_MCP_INPUT_SCHEMA_PROFILE=compact`):
+Measured on the actual REA 6.8.0 `tools/list` payload (`REA_MCP_INPUT_SCHEMA_PROFILE=compact`):
 
 | Scope | Characters | Share |
 | --- | --- | --- |
-| The whole payload REA sends | 2,576,416 | 100% (≈716k tok) |
-| `outputSchema` | 2,353,893 | **91.4%** |
-| `inputSchema` | 85,705 | 3.3% |
-| `description` | 58,934 | 2.3% |
-| **What actually reaches the model (name + description + inputSchema)** | **191,009** | **7.4% (≈53k tok)** |
+| The whole payload REA sends | 3,504,736 | 100% (≈974k tok) |
+| `outputSchema` | 3,199,098 | **91.3%** |
+| `inputSchema` | 121,537 | 3.5% |
+| `description` | 135,500 | 3.9% |
+| **What actually reaches the model (name + description + inputSchema)** | **270,966** | **7.7% (≈75k tok)** |
 
 When DSH assembles an LLM request it maps exactly three fields — `@deepseek-ai/dsh-llm-deepseek/lib/index.js`:
 
@@ -62,7 +63,7 @@ tools: options.tools.map((tool) => ({
 - 91% of that 716k-token payload is the part that looks scary and costs nothing;
 - deleting it saves **0%**; trimming `pattern`/`format` saves a couple of percent; cutting
   descriptions to one sentence saves about 2%;
-- the real cost is **the number of tools** (207 as of this version).
+- the real cost is **the number of tools** (229 as of this version).
 
 So the core idea here is **progressive disclosure**, not schema shrinking. Schema trimming
 (`lite`) is only a secondary optimisation.
@@ -145,7 +146,7 @@ consistent with what REA's official skill references):
 
 | Tool | Purpose |
 | --- | --- |
-| `search_tools` | Search all 207 tools by name + description; returns one-line purpose, required parameters, owning bundle, and whether it is currently loaded |
+| `search_tools` | Search all 229 tools by name + description; returns one-line purpose, required parameters, owning bundle, and whether it is currently loaded |
 | `tool_schema` | Fetch a tool's **complete**, untrimmed inputSchema — use it to construct complex arguments precisely |
 | `call_tool` | Call **any** tool, including tools in unloaded bundles: `{"tool":"analyze_function","arguments":{"procedure":"main"}}` |
 | `bundles` | List/switch bundles, and manage named presets: `action = list \| activate \| deactivate \| set \| save-preset \| load-preset \| remove-preset` |
@@ -156,23 +157,24 @@ lying on the desk*.
 
 ## Bundles
 
-Measured on **REA 6.7.0 (207 tools, `lite: "mild"`)**; for 6.4.0 numbers see "Version adaptation".
+Measured on **REA 6.8.0 (229 tools, `lite: "mild"`)**; for older versions see "Version adaptation".
 
 | Bundle | Tools | Approx. tokens | Contents |
 | --- | --- | --- | --- |
-| `native` | 44 | 4.7k | Native static analysis (pseudocode, assembly, xrefs, annotations) |
-| `android` | 39 | 3.8k | Android / ADB / JEB (devices, logs, APKs, Flutter, HarmonyOS) |
-| `evidence` | 16 | 3.4k | Evidence governance (comparison, verification, residual unknowns, reconstruction ledger) |
-| `web` | 15 | 2.7k | Web / browsers (CDP, network, scripts, source maps) |
+| `native` | 53 | 6.8k | Native static analysis (pseudocode, assembly, xrefs, annotations) |
+| `android` | 40 | 4.0k | Android / ADB / JEB (devices, logs, APKs, Flutter, HarmonyOS) |
+| `evidence` | 18 | 3.9k | Evidence governance (comparison, verification, residual unknowns, reconstruction ledger) |
+| `web` | 15 | 3.5k | Web / browsers (CDP, network, scripts, source maps) |
+| `nav` | 25 | 3.3k | Sessions and navigation (open a target, cursors, bytes, segments, byte search) |
+| `runtime` | 12 | 2.8k | Runtime capture and containers (processes, firmware, EVM, application packages) |
+| `formats` | 11 | 2.6k | Go / Rust / WASM / SQLite / Electron fuses / objdump / model weights / `.pyc` / BEAM |
 | `js` | 13 | 2.6k | JavaScript / Electron application graphs and semantic tracing |
-| `debug` | 20 | 2.1k | Frida / GDB / Rizin / Cutter dynamic debugging |
-| `runtime` | 11 | 2.1k | Runtime capture and containers (processes, firmware, EVM) |
-| `nav` | 23 | 1.9k | Sessions and navigation (open a target, cursors, bytes, segments, byte search) |
-| `apple` | 12 | 1.1k | Objective-C / Swift / plist / dylib resolution |
-| `managed` | 7 | 1.0k | .NET / managed assemblies / managed-native boundaries |
-| `formats` | 7 | 1.0k | Go / Rust / WASM / SQLite / Electron fuses / objdump |
-| `capture` | 6 | 0.8k | PCAP / TShark / sigrok logic signals |
-| `all` | 207 | 26.3k | Everything (equivalent to REA's model-visible set, but slimmer schemas) |
+| `debug` | 20 | 2.2k | Frida / GDB / Rizin / Cutter dynamic debugging |
+| `apple` | 14 | 1.6k | Objective-C / Swift / plist / asset catalogs / dylib resolution |
+| `managed` | 8 | 1.3k | .NET / managed assemblies / managed-native boundaries / Unity IL2CPP |
+| `formats` | 11 | 2.6k | Go / Rust / WASM / SQLite / Electron fuses / objdump / model weights / device tree / `.pyc` / BEAM |
+| `capture` | 6 | 1.1k | PCAP / TShark / sigrok logic signals |
+| `all` | 229 | 34.9k | Everything (equivalent to REA's model-visible set, but slimmer schemas) |
 
 > Bundles overlap (`apple` tools are also in `native`; some `runtime` tools are also in `js`/`web`),
 > so the per-bundle token counts sum to more than `all`.
@@ -184,24 +186,30 @@ Measured on **REA 6.7.0 (207 tools, `lite: "mild"`)**; for 6.4.0 numbers see "Ve
 
 ### Version adaptation (REA 6.5.0 onward)
 
-REA 6.5.0 added three bundles — `debug` / `formats` / `capture`. 6.7.0 has **207 tools**, 37 more
-than 6.4.0, all of them classified (`search_bytes` went to `nav`; `identify_flutter_build` /
-`inspect_dart_aot` / `project_harmony_application_graph` went to `android`).
+REA 6.5.0 added three bundles — `debug` / `formats` / `capture`. 6.8.0 has **229 tools** (22 more than
+6.7.0), all of them classified. The 6.8.0 additions are mostly **offline single-file parsers**, filed
+by what the file *is*: PE/ELF/kernel-module/GPU code objects into `native`; Apple `.ips` crash
+reports and read-only `.app` bundles into `apple`; APK signatures into `android`; Unity IL2CPP
+metadata into `managed`; model weights, device-tree blobs, CPython `.pyc` and Erlang BEAM into
+`formats`; whole desktop-application identification into `runtime`; matching two retained function
+inventories into `evidence`; and REA's own runtime limits into `nav`.
 
 | Bundle | Tools | Contents | Notes |
 | --- | --- | --- | --- |
 | `debug` | 20 | Frida / GDB / Rizin / Cutter dynamic debugging | Needs a live process or device; it mutates target state |
-| `formats` | 7 | Go / Rust / WASM / SQLite / Electron fuses / objdump | Some entries need an external toolchain |
+| `formats` | 11 | Go / Rust / WASM / SQLite / Electron fuses / objdump / model weights / device tree / `.pyc` / BEAM | Some entries need an external toolchain |
 | `capture` | 6 | PCAP / TShark / sigrok logic signals | Needs TShark 4.x / sigrok-cli installed |
 
 Installing those external tools, and what actually works on Windows, is covered in
 "External tools for debug / formats / capture".
 
-**Cost varies by version, and in a counter-intuitive direction**: 6.4.0 was 170 tools / ~49k tokens
-fully loaded; 6.7.0 is 207 tools / ~26.9k tokens fully loaded. A third more tools cost nearly half as
-much, because 6.7.0's `compact` schema profile trims far harder (the largest tool schemas went from
-6–9k characters down to 500–900). So don't bake these numbers into assertions or docs — always take
-them from `data/tools-model.json`, and re-run `node src/cli.mjs snapshot` when you switch versions.
+**Cost varies by version, and it swings both ways**: 6.4.0 was 170 tools / ~49k tokens fully loaded;
+6.7.0 was 207 tools / ~26.9k tokens fully loaded (its `compact` schema profile trimmed far harder —
+the largest tool schemas went from 6–9k characters down to 500–900, so more tools cost less);
+6.8.0 is 229 tools / ~35.5k tokens fully loaded. The trimming did not change again, so the cost
+tracked the tool count back up, and the direct side went from ~53k to ~75k — the saving is still
+about half either way. So don't bake these numbers into assertions or docs — always take them from
+`data/tools-model.json`, and re-run `node src/cli.mjs snapshot` when you switch versions.
 
 **On an older REA**, those three bundles report `0 tools` and are labelled "this REA version does
 not have this bundle" — nothing is broken; the version simply lacks those capabilities.
@@ -223,7 +231,7 @@ Custom bundles let you group arbitrary tools and then toggle them like a built-i
   from left to right.
 - "Merge whole bundle" adds or removes every tool of a built-in bundle at once.
 - Renaming a bundle keeps its ticks attached to it instead of silently breaking.
-- The filter box at the top narrows by name or description, which helps across 207 tools.
+- The filter box at the top narrows by name or description, which helps across 229 tools.
 
 > Why ticking is primary and dragging is secondary: WCAG 2.5.7 (AA) requires a non-dragging
 > alternative for every drag operation, because a drag-only UI is unusable with a keyboard or on a
@@ -395,13 +403,11 @@ node src/cli.mjs classify [--apply] [--set tool=bundle,…]
   main is 2 commits behind origin/main (0 ahead), fast-forwardable
     a18ab29 some new commit
 == REA itself ==
-  installed 6.7.0 (pnpm @ D:/.../rea-agents)
-  npm has a newer version 6.8.0
-  after installing, run node src/cli.mjs snapshot then node src/cli.mjs classify — new tools must be classified before bundles can load them.
+  installed 6.8.0 (pnpm @ D:/.../rea-agents)
+  npm has nothing newer than 6.8.0
 == tool coverage ==
-  source: live; 212 tools present, 207 classified
-  unclassified (REA has them, the bundle list does not): 5
-    inspect_wifi_deauth, …
+  source: live; 229 tools present, 229 classified
+  every tool is classified and no entry is stale.
 ```
 
 Three boundaries that are never crossed:
@@ -467,6 +473,15 @@ mcp__rea__bundles { "action": "remove-preset", "preset": "native-deep" }
 `dsh-plugin/` in this repo is a DSH plugin (details in [dsh-plugin/README.md](dsh-plugin/README.md)).
 Once installed, **Settings → REA tools** gains a page.
 
+**Kernel requirement**: DSH 0.2.0 and later (including prereleases such as 0.2.1-rc.5 and
+0.2.2-alpha.x), with the 0.1.6-alpha.1 line still in range. That range lives in
+`dsh-plugin/package.json` as `engines.dsh` plus the `@deepseek-ai/dsh` peer, and **DSH evaluates it
+when it loads a bundle**: on a mismatch the whole bundle is skipped — the settings page simply
+disappears, and nothing is logged by default. Each 0.2.x prerelease line is listed explicitly,
+because semver's prerelease rule makes a range like `>=0.2.0-rc.1 <0.3.0-0` fail to cover
+`0.2.1-rc.5` for pnpm/npm; the "DSH kernel compatibility declaration" section of
+`node test/maintenance.test.mjs` recomputes this version by version.
+
 The page is split into **six sections** (a top-level tab bar), and each section brings its own
 sub-menu, filters and pagination — 200+ tools, 12 bundles and any number of presets no longer pile
 up in one long scroll:
@@ -498,7 +513,7 @@ Per section:
   row has Load and Delete, and the one in effect is tagged. A preset whose referenced bundles have
   disappeared (deleted custom bundle, or a preset copied from another machine) is flagged on the spot
   instead of silently doing nothing.
-- A "which bundle owns this tool" search box, over 207 tools by name or description.
+- A "which bundle owns this tool" search box, over 229 tools by name or description.
 
 ```bash
 # install into a profile (desktop shown here; web works the same) — dependencies and
@@ -589,8 +604,8 @@ machine environment variable too, so the settings page and the gateway read and 
 ```bash
 node test/probe.mjs         # 28 integration tests: handshake / meta-tools / search / forwarding / hot load / hot unload / everything / custom bundles / presets
 node test/plugin.test.mjs   # 91 plugin checks: fake Cordis context drives the panel API + renders the settings page
-node test/maintenance.test.mjs # 163 checks: classification scoring / extras merge / tool coverage / version comparison / git fast-forward on a temporary real repo / presets / the standalone preset store / new panel routes
-node test/panel-render.test.mjs # 61 checks: re-renders the whole settings page on a minimal React runtime (every "Updates & health" and "Presets" branch)
+node test/maintenance.test.mjs # 190 checks: classification scoring / extras merge / tool coverage / version comparison / git fast-forward on a temporary real repo / presets / the standalone preset store / the DSH kernel compatibility declaration / new panel routes
+node test/panel-render.test.mjs # 68 checks: re-renders the whole settings page on a minimal React runtime (every "Updates & health", "Presets" and "host locale" branch)
 node test/reload-child.mjs  # 6 child hot-restart checks: change child.env → restart REA → re-handshake → refetch tools → notify client
 node test/check-config.mjs  # starts REA with the real config.json and confirms every tool is reachable
 node e2e-check.mjs          # 9 external-tool checks: real proxy → real REA → real objdump/rizin/tshark/WABT/SQLite/Frida/Cutter
@@ -601,10 +616,10 @@ Matching npm scripts: `npm run test:panel` / `test:maintenance` / `test:reload` 
 `test:config` / `probe` / `snapshot` / `check` / `doctor` / `classify`.
 
 None of these assertions hard-code tool counts or total token cost — those drift with the REA version
-(6.4.0 = 170 tools / ~49k tok, 6.7.0 = 207 tools / ~26.9k tok, because the newer compact schema trims
-harder). Every baseline derives from the snapshot file.
+(6.4.0 = 170 tools / ~49k tok, 6.7.0 = 207 tools / ~26.9k tok, 6.8.0 = 229 tools / ~35.5k tok).
+Every baseline derives from the snapshot file.
 
-Before changing code, read [AGENTS.md](AGENTS.md) (Chinese): it records this repo's eight hard
+Before changing code, read [AGENTS.md](AGENTS.md) (Chinese): it records this repo's ten hard
 constraints, a code map, and the traps already stepped on.
 
 ## External tools for debug / formats / capture
@@ -630,8 +645,9 @@ on) are all recorded in `_Tools/README-rea-target-env.md` with a companion entry
 
 ## Known limitations
 
-- The first handshake pulls REA's full tool table once (207 tools / about 2.6 MB on 6.7.0; handshake
-  + list measured at ~4.5 s), after which it is cached.
+- The first handshake pulls REA's full tool table once (229 tools / about 3.3 MB on 6.8.0; handshake
+  + list measured at ~1.5 s here, which depends on the machine and the disk cache — an order of
+  magnitude, not a promise), after which it is cached.
 - Trimming schema keywords makes **pre-call argument validation looser**, so errors surface one step
   later, from REA (as a structured tool error).
 - Only stdio MCP is proxied; `mode: "direct"` is a reserved field and the bypass path is not implemented.

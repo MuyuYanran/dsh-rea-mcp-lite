@@ -1,6 +1,6 @@
 {
   "name": "dsh-rea-lite-panel",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "REA 工具网关的设置页：按功能分区勾选功能族、看清每个族的上下文成本、保存与读取命名预设、热切换，并能检查/应用本仓库与 REA 的更新、把新工具自动归类。",
   "license": "MIT",
   "author": "MuyuYanran",
@@ -17,7 +17,8 @@
   "type": "module",
   "main": "lib/index.js",
   "engines": {
-    "node": ">=20"
+    "node": ">=20",
+    "dsh": ">=0.1.6-alpha.1 <0.3.0-0"
   },
   "publishConfig": {
     "access": "public"
@@ -26,6 +27,7 @@
     ".": "./lib/index.js",
     "./client": "./lib/client.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
+    "./icon": "./icon.svg",
     "./locale/*.json": "./locale/*.json",
     "./package.json": "./package.json"
   },
@@ -53,7 +55,7 @@
     "progressive-disclosure"
   ],
   "peerDependencies": {
-    "@deepseek-ai/dsh": ">=0.1.6-alpha.1 <0.2.0-0 || >=0.2.0-rc.1 <0.3.0-0"
+    "@deepseek-ai/dsh": ">=0.1.6-alpha.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.1-0 || >=0.2.1-0 <0.2.2-0 || >=0.2.2-0 <0.3.0-0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/dsh": {

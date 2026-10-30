@@ -8,9 +8,9 @@
 
 ## 一、这个仓库到底在解决什么问题
 
-REA（`rea-agents`）是一个 MCP 服务器，提供 207 个逆向工程工具（6.7.0）。直连它，模型每次都要吃掉约 53k token 的工具定义。本仓库是一个 **stdio MCP 代理**，把「工具定义」变成按需加载：默认只暴露 5 个元工具（约 624 tok），其余工具随时可通过 `call_tool` 调用。
+REA（`rea-agents`）是一个 MCP 服务器，提供 229 个逆向工程工具（6.8.0）。直连它，模型每次都要吃掉约 75k token 的工具定义。本仓库是一个 **stdio MCP 代理**，把「工具定义」变成按需加载：默认只暴露 5 个元工具（约 624 tok），其余工具随时可通过 `call_tool` 调用。
 
-核心设计取舍是 **按需暴露（progressive disclosure），不是压缩 schema**。理由在 README 的「为什么不是压缩 schema」一节，实测数据是：REA 报文里 91.4% 是 `outputSchema`，而它根本不进模型上下文。别再把精力花在砍 schema 上。
+核心设计取舍是 **按需暴露（progressive disclosure），不是压缩 schema**。理由在 README 的「为什么不是压缩 schema」一节，实测数据是：REA 报文里 91.3% 是 `outputSchema`，而它根本不进模型上下文。别再把精力花在砍 schema 上。
 
 架构一句话：
 
@@ -22,18 +22,19 @@ DSH ──stdio──> src/proxy.mjs ──stdio──> rea.mjs mcp（子进程�
 
 ---
 
-## 二、动手前必须知道的九条
+## 二、动手前必须知道的十条
 
 ### 1. 不要把 REA 的工具数量或 token 总量写进代码或断言
 
-这两个数**随 REA 版本漂移，而且方向反直觉**：
+这两个数**随 REA 版本漂移，而且方向来回摆**：
 
 | REA | 工具数 | 全量成本（含元工具） |
 | --- | --- | --- |
 | 6.4.0 | 170 | ~49k tok |
 | 6.7.0 | 207 | ~26.9k tok |
+| 6.8.0 | 229 | ~35.5k tok |
 
-工具多了 37 个，成本反而降了 44%——因为 6.7.0 的 `compact` schema profile 裁得更狠（最大的几个工具 schema 从 6–9k 字符压到 500–900）。我为此白查了一轮「快照生成是不是有 bug」。
+6.4.0 → 6.7.0 工具多了 37 个，成本反而降了 44%——因为 6.7.0 的 `compact` schema profile 裁得更狠（最大的几个工具 schema 从 6–9k 字符压到 500–900）。我为此白查了一轮「快照生成是不是有 bug」。6.8.0 裁剪强度没再变，成本跟着工具数涨回去（+32%），所以「工具多了成本反而降」不是规律，只是那一次的事实。
 
 **正确做法**：一切以 `data/tools-model.json` 为准，测试从它派生基准。参见 `test/plugin.test.mjs` 里的写法——那里曾经写死 `49k`、`99%`、`170`，升级后三个断言全红，而那是版本演进不是回归。
 
@@ -152,6 +153,36 @@ process.env.REA_LITE_DATA_DIR = <同一个临时目录>        // ← 少了这�
   子包条目写成 `url: https://github.com/<owner>/<repo>/tree/main/dsh-plugin` + `name: <owner>/<repo>#dsh-plugin`
   + 文件名 `<owner>__<repo>--dsh-plugin.yml`。CI 会真的去读那个子目录的 `dsh.bundle`，并核对描述里的每个声明。
 
+### 10. DSH 兼容范围是**加载开关**，而且 semver 的预发布规则会骗人
+
+`dsh-plugin/package.json` 里的 `engines.dsh` / `peerDependencies["@deepseek-ai/dsh"]` 不是说明文字：
+
+- `dsh-app-boot` 用 `semver.satisfies(runtime, range, { includePrerelease: true })` 评估它们。
+  `engines.dsh` 存在时**独占判定、完全忽略 peers**（0.2.1 起）；0.2.0 那代只认 peers。
+- 判不满足的后果不是警告：整个 bundle 被跳过（记进 `skippedBundles`），**补丁层不会加载、插件行不会插入，
+  设置页直接消失**，而且默认不打日志。`dsh-plugin-manager`（安装时）与 `dsh-plugin-market` 用同一套判定。
+
+坑在 semver 的预发布规则：一条 `>=0.2.0-rc.1 <0.3.0-0` **看着**覆盖 `0.2.1-rc.5`，但在**不开**
+`includePrerelease` 的调用方（pnpm/npm、第三方脚本）眼里不满足 —— 目标带预发布时，这一组比较子里必须有一个
+「同 `major.minor.patch` 三元组且自身带预发布」的界。内核开了 `includePrerelease`，pnpm 没开。
+所以范围按 0.2.x 的每条预发布线显式列出：
+
+```
+>=0.1.6-alpha.1 <0.2.0-0 || >=0.2.0-rc.1 <0.2.1-0 || >=0.2.1-0 <0.2.2-0 || >=0.2.2-0 <0.3.0-0
+```
+
+两种语义下结论一致，`test/maintenance.test.mjs` 的「DSH 内核兼容声明」一节逐版本复算这点，并把比较器本身也钉住
+（否则「测试通过」可能只是比较器在自说自话）。**内核开新预发布线时，把版本加进那一节的 `claimed` 列表**——
+忘了加就会以「测试还是绿的、插件却不见了」的形式暴露。
+
+同一个 `package.json` 里内核还会读这些字段，改动前先看测试里的清单断言：`dsh.bundle.patch` 指向的补丁文件、
+`dsh.client.platform`、`exports` 里的 `./client` / `./icon` / `./locale/*.json`、`files` 是否覆盖这些资源、
+以及客户端半 `window.__ModuleLoader__.load({ id })` 的 id **必须等于包名**（宿主按 row 名找浏览器半）。
+
+客户端半还有一条同类的「取错字段不报错」的坑：内核的 `LocaleSnapshot` 自 0.2.0 起就是
+`{ active, locales, revision }`，字段名是 `active`。读 `.id` 得到的是 `undefined` —— 不抛异常（那段在
+`try` 里），只是整页永远停在中文词典。`test/panel-render.test.mjs` 的「跟随宿主语言」一节按渲染结果钉住它。
+
 ---
 
 ## 三、代码地图
@@ -188,8 +219,8 @@ process.env.REA_LITE_DATA_DIR = <同一个临时目录>        // ← 少了这�
 
 ```bash
 node test/plugin.test.mjs    # 91 项：假 Cordis 上下文驱动面板 API + 渲染设置页（不起 REA）
-node test/maintenance.test.mjs # 163 项：归类打分、追加归类、工具覆盖、版本比较、临时真仓库的 git 快进、预设、预设独立存储、面板新接口
-node test/panel-render.test.mjs # 61 项：最小 React 运行时重渲染整页（plugin.test.mjs 只覆盖首屏）
+node test/maintenance.test.mjs # 193 项：归类打分、追加归类、工具覆盖、版本比较、临时真仓库的 git 快进、预设、预设独立存储、DSH 内核兼容声明、更新路径的命令执行、面板新接口
+node test/panel-render.test.mjs # 68 项：最小 React 运行时重渲染整页（plugin.test.mjs 只覆盖首屏）
 node test/probe.mjs          # 28 项：真代理 + 真 REA，握手/元工具/转发/热加载/自定义族/预设
 node test/reload-child.mjs   # 6 项：改 child.env → 重启 → 重新握手 → 重取工具 → 通知客户端
 node test/check-config.mjs   # 用真实 config.json 拉起 REA，确认全部工具可达
@@ -230,6 +261,10 @@ node e2e-check.mjs           # 9 项：真实代理 → 真实 REA → 真实外
 | 更新插件后预设全没了 | 预设曾被写进 `config.json`，而 npm 安装时它在插件包内，升级整目录替换 | 已修：预设存在 `<用户数据根>/rea-lite/presets.json`。若还复现，检查 `presetStorePath()` 是否被改回跟随 `REA_LITE_CONFIG`（见第 6 条） |
 | 跑完自检后 `~/.dsh/rea-lite/presets.json` 里冒出测试预设 | 测试只隔离了 `REA_LITE_CONFIG`，没有隔离预设存储（二者路径相互独立） | 在测试里**同时**设 `REA_LITE_DATA_DIR=<临时目录>`，收尾一并还原（见第 6 条） |
 | 保存勾选后预设全没了 | `saveConfig` 误把 `presets` 当空值写回存储 | `saveConfig` 只在 `config.presets !== undefined` 时才写存储；检查调用方是不是传了个空对象而不是不带这个键 |
+| 装完插件设置页里没有「REA 工具」，也不报错 | bundle 的 DSH 兼容范围与当前内核不匹配 → `dsh-app-boot` 把整个 bundle 跳过（`skippedBundles`） | 看 `dsh-plugin/package.json` 的 `engines.dsh` / `@deepseek-ai/dsh` peer 是否覆盖当前内核版本；`node test/maintenance.test.mjs` 的「DSH 内核兼容声明」会逐版本复算（见第 10 条） |
+| 升级插件后界面文案怎么切都还是中文 | 客户端半读 `locale.getLocale().id`，而 `LocaleSnapshot` 的字段是 `active` | 已修：读 `active` 并保留 `id` 回退；`node test/panel-render.test.mjs` 的「跟随宿主语言」一节按渲染结果断言 |
+| 内核发新版后要求改兼容范围 | semver 的预发布规则：没有同 `major.minor.patch` 三元组的预发布界就判不满足 | 按 0.2.x 每条预发布线加一段 `>=x.y.z-0 <下一段`，同时把版本加进维护测试的 `claimed` 列表（见第 10 条） |
+| `update-rea --apply` 报「安装失败：」后面什么都没有，而手工跑同一个命令却能装上 | Windows 上 pnpm/npm 是 `.cmd` 垫片，`spawn(..., {shell:false})` 起不来；失败只走 `error` 事件，stdout/stderr 全空，而报错只取了后两者 | 已修：包管理器走 shell（且命令行拼成一个字符串，避开 Node 的 DEP0190），并把 `result.error` 一起报出来；`test/maintenance.test.mjs` 的「更新路径的命令执行」一节钉住这两点 |
 
 ---
 

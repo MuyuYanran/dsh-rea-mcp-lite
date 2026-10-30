@@ -29,7 +29,7 @@ window.__ModuleLoader__.load({
         nav: 'REA 工具',
         title: 'REA 工具网关',
         intro:
-          'REA 的 170 个逆向工具不必全部塞进上下文：勾选的族会直接把工具定义交给模型，未勾选的仍可用 search_tools 找、call_tool 调。',
+          'REA 的逆向工具不必全部塞进上下文：勾选的族会直接把工具定义交给模型，未勾选的仍可用 search_tools 找、call_tool 调。',
         loading: '正在读取状态…',
         refresh: '刷新',
         allOn: '全部加载',
@@ -207,7 +207,7 @@ window.__ModuleLoader__.load({
         nav: 'REA tools',
         title: 'REA tool gateway',
         intro:
-          "REA's 170 reverse-engineering tools do not all need to sit in context: checked bundles hand their tool definitions to the model, and unchecked ones stay reachable through search_tools and call_tool.",
+          "REA's reverse-engineering tools do not all need to sit in context: checked bundles hand their tool definitions to the model, and unchecked ones stay reachable through search_tools and call_tool.",
         loading: 'Loading state…',
         refresh: 'Refresh',
         allOn: 'Load all',
@@ -2223,7 +2223,6 @@ window.__ModuleLoader__.load({
     // ── 语言订阅 ───────────────────────────────────────────────────────────
 
     /** 宿主 locale 服务的订阅；服务不存在时退化为「只用自己的词典」。 */
-    var localeService = null;
     var localeWatchers = [];
 
     function subscribeLocale(listener) {
@@ -2238,6 +2237,19 @@ window.__ModuleLoader__.load({
     function pushLocale(id) {
       localeRef.current = id === 'en' ? 'en' : 'zh';
       for (var index = 0; index < localeWatchers.length; index += 1) localeWatchers[index]();
+    }
+
+    /**
+     * 从宿主 locale 快照里读出当前语言 id。
+     *
+     * 内核（0.2.0 起，含 0.2.1-rc.5）的 LocaleSnapshot 是 { active, locales, revision }，
+     * 字段名是 **active**；早期文档里写作 id。两个都读。这里取错不会抛错，只会让整页
+     * 永远停在中文词典上，所以字段名必须按内核实际形状写。
+     */
+    function localeIdOf(snapshot) {
+      if (snapshot === undefined || snapshot === null) return 'zh';
+      var active = typeof snapshot.active === 'string' ? snapshot.active : snapshot.id;
+      return active === 'en' ? 'en' : 'zh';
     }
 
     // ── 插件导出 ───────────────────────────────────────────────────────────
@@ -2258,17 +2270,29 @@ window.__ModuleLoader__.load({
           NS + ': dictionaries',
         );
         try {
-          var read = function () {
-            var id = locale.getLocale().id === 'en' ? 'en' : 'zh';
-            pushLocale(id);
-          };
-          read();
-          ctx.effect(
-            function () {
-              return locale.subscribe(read);
-            },
-            NS + ': locale mirror',
-          );
+          // 内核同时提供 getLocale() 与 getSnapshot()（返回同一份快照）；旧组合可能只有一个。
+          var snapshotOf =
+            typeof locale.getLocale === 'function'
+              ? function () {
+                  return locale.getLocale();
+                }
+              : typeof locale.getSnapshot === 'function'
+                ? function () {
+                    return locale.getSnapshot();
+                  }
+                : null;
+          if (snapshotOf !== null && typeof locale.subscribe === 'function') {
+            var read = function () {
+              pushLocale(localeIdOf(snapshotOf()));
+            };
+            read();
+            ctx.effect(
+              function () {
+                return locale.subscribe(read);
+              },
+              NS + ': locale mirror',
+            );
+          }
         } catch (error) {
           console.warn('[' + NS + '] locale mirror skipped:', error);
         }

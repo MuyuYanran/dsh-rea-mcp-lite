@@ -58,15 +58,31 @@ const main = async () => {
     desc: (t.description ?? '').slice(0, 200),
     chars: JSON.stringify(t).length,
   }));
+  // README「为什么不是压缩 schema」那张表要的就是这几个数。它们随 REA 版本漂移，
+  // 所以跟摘要一起落盘 —— 否则文档数字只能靠另一份缓存报文复算（那次就是这么来的）。
+  // L() 与 probe/analyze-tools.mjs 一致：字段缺失按空字符串算，口径可比。
+  const L = (value) => JSON.stringify(value ?? '').length;
+  const sum = (pick) => tools.reduce((acc, tool) => acc + L(pick(tool)), 0);
+  const sizes = {
+    total: sum((t) => t),
+    outputSchema: sum((t) => t.outputSchema),
+    inputSchema: sum((t) => t.inputSchema),
+    description: sum((t) => t.description),
+    // 真正进模型上下文的部分：DSH 只映射 name + description + inputSchema（见 README 引的那段代码）。
+    modelVisible: sum((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
+  };
   fs.writeFileSync(OUT, JSON.stringify({
     generatedAt: new Date().toISOString(),
     protocol: '2026-07-28',
+    schemaProfile: process.env.REA_MCP_INPUT_SCHEMA_PROFILE ?? '(未设置)',
     serverVersion: disc.result?.serverInfo?.version ?? null,
     toolCount: shape.length,
+    sizes,
     tools: shape,
   }, null, 2));
   console.log('server/discover serverInfo =', JSON.stringify(disc.result?.serverInfo ?? null));
   console.log('工具数 =', shape.length);
+  console.log('字符数 =', JSON.stringify(sizes));
   console.log('已写入', OUT);
   child.stdin.end();
   setTimeout(() => process.exit(0), 300);

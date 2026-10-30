@@ -174,8 +174,8 @@ function loadClient() {
 const captured = loadClient();
 check('浏览器半能被 __ModuleLoader__ 捕获', captured !== null && captured.id === 'dsh-rea-lite-panel');
 
-/** 装配组件；返回组件函数与运行时。 */
-function buildComponent() {
+/** 装配组件；返回组件函数与运行时。options.locale 用于喂一个宿主 locale 服务替身。 */
+function buildComponent(options = {}) {
   const runtime = makeRuntime();
   // factory 直接返回 module.exports（见 client.js 末尾），不再是 module 包装对象。
   const exported = captured.factory((request) => {
@@ -185,8 +185,8 @@ function buildComponent() {
   let component = null;
   const ctx = {
     effect(fn) { fn(); },
-    get: () => undefined,
-    slots: { inject: (owner, cb) => cb(), register: (options, comp) => { component = comp; } },
+    get: (name) => (name === 'locale' ? options.locale : undefined),
+    slots: { inject: (owner, cb) => cb(), register: (registration, comp) => { component = comp; } },
   };
   exported.apply(ctx);
   return { component, runtime };
@@ -618,6 +618,59 @@ console.log('\n分区：工具');
   check('工具列表分页（一页 12 条，不一次铺 30 条）', !text.includes('tool_25'), text.slice(0, 100));
   check('工具分区有分页器', text.includes('上一页') && text.includes('第 1 / 3 页'));
   check('工具分区有说明', text.includes('按名字或说明搜工具'));
+}
+
+// ── 9. 跟随宿主语言 ────────────────────────────────────────────────────────
+//
+// 内核的 LocaleSnapshot 是 { active, locales, revision } —— 从 0.2.0 到 0.2.1-rc.5 都是这个形状。
+// 面板早期读的是 `.id`：字段不存在 → 值恒为 undefined → 整页永远停在中文词典，而且不报错
+// （异常被 try 吞掉，只留一条 console.warn）。这一节把「跟随宿主语言」钉在渲染行为上。
+
+console.log('宿主语言跟随');
+{
+  /** 只实现被用到方法的 locale 服务替身；reader 决定快照从哪个方法取。 */
+  const localeStub = (snapshot, { reader = 'getLocale' } = {}) => {
+    const listeners = [];
+    const service = {
+      register: () => () => {},
+      subscribe: (fn) => { listeners.push(fn); return () => {}; },
+      listeners,
+    };
+    if (reader === 'getLocale') service.getLocale = () => snapshot;
+    else service.getSnapshot = () => snapshot;
+    return service;
+  };
+
+  /** 用给定 locale 服务渲染一整页，返回可见文字与运行时。 */
+  const renderWithLocale = (service) => {
+    const { component, runtime } = buildComponent({ locale: service });
+    const tree = runtime.render(component, [[[HOOK.state, baseState()]]]);
+    return { text: textOf(tree).join(' '), runtime, component };
+  };
+
+  const english = renderWithLocale(localeStub({ active: 'en', locales: [{ id: 'zh', label: '中文' }, { id: 'en', label: 'English' }], revision: 0 }));
+  check('快照 active=en 时用英文词典', english.text.includes('REA tools'), english.text.slice(0, 80));
+
+  const chinese = renderWithLocale(localeStub({ active: 'zh', locales: [{ id: 'zh', label: '中文' }], revision: 0 }));
+  check('快照 active=zh 时用中文词典', chinese.text.includes('REA 工具'), chinese.text.slice(0, 80));
+
+  // 早期契约里出现过 id 写法；外部/旧组合可能这么给，别让字段名之争把语言卡死在中文。
+  check('快照只有 id 字段时也认（旧写法回退）', renderWithLocale(localeStub({ id: 'en', locales: [], revision: 0 })).text.includes('REA tools'));
+
+  // 内核同时提供 getLocale / getSnapshot（返回同一份快照）；只给后者的组合不该退化成中文。
+  check('只实现 getSnapshot 的服务也能跟随', renderWithLocale(localeStub({ active: 'en', locales: [], revision: 0 }, { reader: 'getSnapshot' })).text.includes('REA tools'));
+
+  // 切换语言：宿主通知 → 订阅回调 → 面板重渲染成新语言。
+  const swappable = localeStub({ active: 'en', locales: [], revision: 0 });
+  const live = renderWithLocale(swappable);
+  check('宿主已把订阅回调交上来', swappable.listeners.length === 1);
+  swappable.getLocale = () => ({ active: 'zh', locales: [], revision: 1 });
+  if (swappable.listeners[0]) swappable.listeners[0]();
+  const afterSwitch = live.runtime.render(live.component);
+  check('宿主切到 zh 后整页跟着换成中文', textOf(afterSwitch).join(' ').includes('REA 工具'), textOf(afterSwitch).join(' ').slice(0, 80));
+
+  // 没有 locale 服务时不该炸，也不该把语言搞坏（退化成中文词典）。
+  check('没有 locale 服务时仍能渲染并退化为中文', renderWithLocale(undefined).text.includes('REA 工具'));
 }
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`);

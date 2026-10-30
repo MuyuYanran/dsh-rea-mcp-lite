@@ -15,14 +15,49 @@ import { BUNDLES, unassignedTools } from './bundles.mjs';
 
 const REGISTRY_URL = process.env.REA_LITE_REGISTRY || 'https://registry.npmjs.org/rea-agents';
 
+/**
+ * Windows 上 npm/pnpm 是 `.cmd` 垫片：不经 shell 直接 spawn 会立刻失败（ENOENT/EINVAL），
+ * 而且失败只走 `error` 事件 —— stdout 与 stderr 都是空的。2026-10-30 就因为这一点，
+ * `update-rea --apply` 报出一句没有任何信息的「安装失败：」，而同一个命令手工跑是成功的。
+ * git 与 node 是真正的 .exe，不需要 shell，走原路径。
+ */
+const SHELL_SHIMS = new Set(['npm', 'pnpm', 'yarn', 'npx', 'corepack']);
+
+/** 这条命令要不要交给 shell 解析（只看包管理器；其余保持 shell:false，避免多余的命令行解析）。 */
+export function needsShell(command) {
+  return process.platform === 'win32' && SHELL_SHIMS.has(String(command).toLowerCase());
+}
+
+/**
+ * 交给 shell 时必须把整条命令行拼成**一个字符串**再传：
+ * `spawn(cmd, args, { shell: true })` 会触发 Node 的 DEP0190 —— 它明确说实参「只拼接、不转义」。
+ * 所以这里只放行安全字符集，出现别的字符就直接拒绝，而不是拼出一条可能被当成命令解释的命令行。
+ */
+const SAFE_SHELL_ARG = /^[A-Za-z0-9@._/:=+-]+$/u;
+
+function shellCommandLine(command, args) {
+  const parts = [String(command), ...args.map(String)];
+  for (const part of parts) {
+    if (!SAFE_SHELL_ARG.test(part)) throw new Error(`拒绝交给 shell 的内容（含特殊字符）：${JSON.stringify(part)}`);
+  }
+  return parts.join(' ');
+}
+
+/** 把 runSync/runAsync 的错误字段拼成一句人话：error 与 stderr 常常只有一边有内容。 */
+function describeFailure(result) {
+  const detail = [result.error, result.stderr, result.stdout].map((part) => (part ?? '').trim()).filter(Boolean).join(' / ');
+  return detail === '' ? '没有输出（进程可能根本没起来）' : detail.slice(-800);
+}
+
 /** 跑一条命令，同步拿结果（git/pnpm 这类短命令用同步更省事）。 */
 function runSync(command, args, opts = {}) {
-  const result = spawnSync(command, args, {
+  const useShell = opts.shell ?? needsShell(command);
+  const result = spawnSync(useShell ? shellCommandLine(command, args) : command, useShell ? [] : args, {
     cwd: opts.cwd,
     encoding: 'utf8',
     windowsHide: true,
     timeout: opts.timeoutMs ?? 60000,
-    shell: false,
+    shell: useShell,
     env: { ...process.env, ...(opts.env ?? {}) },
   });
   return {
@@ -36,12 +71,25 @@ function runSync(command, args, opts = {}) {
 
 /** 跑一条命令，异步（安装可能几分钟，不能堵事件循环）。 */
 export function runAsync(command, args, opts = {}) {
+  const useShell = opts.shell ?? needsShell(command);
+  let finalCommand = command;
+  let finalArgs = args;
+  if (useShell) {
+    try {
+      finalCommand = shellCommandLine(command, args);
+      finalArgs = [];
+    } catch (error) {
+      // 与「进程起不来」同一种失败形态：调用方拿 error 就能说清楚。
+      return Promise.resolve({ ok: false, status: -1, stdout: '', stderr: '', error: error.message });
+    }
+  }
   return new Promise((resolve) => {
-    const child = spawn(command, args, {
+    const child = spawn(finalCommand, finalArgs, {
       cwd: opts.cwd,
       windowsHide: true,
       env: { ...process.env, ...(opts.env ?? {}) },
       stdio: ['ignore', 'pipe', 'pipe'],
+      shell: useShell,
     });
     let stdout = '';
     let stderr = '';
@@ -270,6 +318,11 @@ export async function applyReaUpdate(opts = {}) {
   if (check.updateAvailable !== true) return { ok: false, reason: `已是最新（${check.installed}）` };
 
   const version = opts.version ?? check.latest;
+  // 版本号来自远端 packument（或调用方），会被拼进 shell 命令行；先按 semver 形状卡住，
+  // 免得一个被污染的 dist-tag 变成命令注入（拒绝的理由也要说人话，而不是底层那句「含特殊字符」）。
+  if (typeof version !== 'string' || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/u.test(version)) {
+    return { ok: false, reason: `版本号不是合法的 semver：${JSON.stringify(version)}` };
+  }
   const envDir = install.envDir;
   const manager = install.manager === 'npm' ? 'npm' : 'pnpm';
   const stamp = new Date().toISOString().replace(/[:.]/gu, '-').slice(0, 19);
@@ -293,12 +346,12 @@ export async function applyReaUpdate(opts = {}) {
       for (const name of backup.copied) fs.copyFileSync(path.join(backup.dir, name), path.join(envDir, name));
       if (backup.copied.includes('package.json')) {
         const restore = await runAsync(manager, manager === 'pnpm' ? ['install'] : ['install'], { cwd: envDir, timeoutMs: opts.timeoutMs ?? 900000 });
-        rollback = restore.ok ? '已恢复原清单并重装' : `恢复清单成功，但重装失败：${restore.stderr.slice(-400)}`;
+        rollback = restore.ok ? '已恢复原清单并重装' : `恢复清单成功，但重装失败：${describeFailure(restore)}`;
       }
     } catch (error) {
       rollback = `回滚失败：${error.message}`;
     }
-    return { ok: false, applied: false, plan, rollback, reason: `安装失败：${(result.stderr || result.stdout || '').slice(-800)}` };
+    return { ok: false, applied: false, plan, rollback, reason: `安装失败：${describeFailure(result)}` };
   }
 
   // 装完立刻验一次：能列出工具才算成功，否则「装上了但跑不起来」比装失败更难查。

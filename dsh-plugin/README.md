@@ -2,6 +2,8 @@
 
 [rea-mcp-lite](https://github.com/MuyuYanran/dsh-rea-mcp-lite) 的设置页：在 **设置 → REA 工具** 里勾选功能族、看清每个族的上下文成本、约一秒热切换，不用改配置文件也不用重启 DSH。
 
+要求 DSH **0.2.0 及以上**（含 0.2.1-rc.5、0.2.2-alpha.x 这类预发布）；`0.1.6-alpha.1` 起的旧线也仍在支持范围内。这个范围写在本包 `package.json` 的 `engines.dsh` 与 `@deepseek-ai/dsh` peer 里，DSH 加载 bundle 时会真的拿它做判定，不匹配就整个 bundle 被跳过（设置页直接消失，默认不打日志）。
+
 ```
 dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 ```
@@ -28,7 +30,7 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 - **会话内实测**：直接读 DSH 工具注册表里真实存在的 `mcp__rea__*` 工具数与字符数（与网关同一套 3.6 字符/token 口径），保存后约 1 秒跟随变化 —— 这是"热切换到底生效没有"的权威答案。
 - **自定义分组（可视化编辑）**：左边列出全部工具（带一句话定义与成本）供勾选，右边是本组已选；支持拖动加入、整族一键并入、改组名时勾选自动跟随、随时编辑已有分组。以勾选为主是因为 WCAG 2.5.7 要求拖动必须有非拖动替代。
 - **预设**：填个名字就能把「当前勾选 + 裁剪档」存下来，每条预设有「读取」「删除」，当前生效的那条会被标出；预设引用的族已不存在时（自定义组被删、或预设来自别的机器）当场标出来，读取时跳过而不是静默加载一个空组。预设不记 `child`（本机路径不跟着走）。模型侧同一件事：`bundles {"action":"save-preset"/"load-preset","preset":"…"}`。
-- **查工具属于哪个族**：按名字/说明搜索（REA 6.4.0 是 170 个，6.7.0 是 207 个）。
+- **查工具属于哪个族**：按名字/说明搜索（REA 6.4.0 是 170 个，6.7.0 是 207 个，6.8.0 是 229 个）。
 - **更新与体检**：一张卡片给出三块结论 —— 本仓库落后远端几个提交、REA 本体装的是哪版/npm 上有哪版、当前 REA 有多少工具还没归族。按钮是「更新本仓库」「升级 REA」「刷新快照」「写入高置信度归类」。默认读工具快照（一秒内出结果），勾「向 REA 实时查询」才真的起一次 REA。
 - **归类预览**：列出每个未归族的新工具与建议归属，标出置信度（高/中/低）。高置信度可一键写入 `config.json` 的 `bundleExtras`；不确定的留给模型判断（CLI `classify` 会打印题面）。
 - **服务器状态**：已连接 / 已停用 / 启用但未连上，并在被停用时提示去「MCP 管理」启用。
@@ -68,4 +70,4 @@ dsh plugin --profile desktop add link:/path/to/dsh-rea-mcp-lite/dsh-plugin
 - 只管「加载哪些族」，不管 MCP 服务器的启停 —— 那是「MCP 管理」的事。
 - 只服务回环地址：`/rea-lite/*` 对非 `127.0.0.1`/`::1` 来源一律 403。
 - 只写网关 `config.json` 的这几个字段：`activeBundles`（勾选）、`customBundles`（自定义分组）、`bundleExtras`（归类结果）、`presets`（预设）、`updates`（更新开关）；其余字段原样保留（尤其 `child`）。
-- 自检：`node test/plugin.test.mjs`（91 项，用假 Cordis 上下文驱动真实的 `apply()`）+ `node test/maintenance.test.mjs`（163 项，含预设、预设独立存储与其它面板新增接口）+ `node test/panel-render.test.mjs`（61 项，真的重渲染整页，含六个分区与筛选/分页）。
+- 自检：`node test/plugin.test.mjs`（91 项，用假 Cordis 上下文驱动真实的 `apply()`）+ `node test/maintenance.test.mjs`（190 项，含预设、预设独立存储、DSH 内核兼容声明与其它面板新增接口）+ `node test/panel-render.test.mjs`（68 项，真的重渲染整页，含六个分区、筛选/分页与跟随宿主语言）。

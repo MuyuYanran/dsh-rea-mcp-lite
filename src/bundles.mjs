@@ -1,10 +1,13 @@
 // REA MCP 工具的「功能族」划分。
-// 用显式工具名列表（从 REA 实际 tools/list 导出：6.4.0 = 170 个，6.7.0 = 207 个），
+// 用显式工具名列表（从 REA 实际 tools/list 导出：6.4.0 = 170 个，6.7.0 = 207 个，6.8.0 = 229 个），
 // 便于核对与演进：若 REA 再升级后新增工具，未归族者会在 `bundles` 元工具里以
 // unassigned 形式报出来，也会在 `cli.mjs status` 里提示。
 //
 // 版本漂移约定：保留旧版本已删除的工具名没有坏处（describeBundles 会把它们报成
 // missing 而不是报错），但**新增工具必须归族**，否则用户在面板上看不到它属于哪族。
+//
+// 新增工具**在这里手工归族**（带版本注释）；`classify.mjs` 的机器判断写 `bundleExtras`，
+// 两者是并列的：内置清单随仓库走，所有用户升级后都拿到同一份；extras 只补本机的不确定项。
 
 export const BUNDLES = {
   nav: {
@@ -17,6 +20,8 @@ export const BUNDLES = {
       'search_bytes',
       'list_architectures', 'list_segments', 'binary_overview', 'inspect_address_context',
       'list_bookmarks', 'set_bookmark', 'unset_bookmark', 'inspect_analysis_view',
+      // 6.8.0+ 新增：REA 自身运行时限额的查看与调整（不是目标程序的东西，所以跟着会话走）
+      'inspect_analysis_settings', 'update_analysis_settings',
     ],
   },
   native: {
@@ -35,6 +40,10 @@ export const BUNDLES = {
       'comment', 'inline_comment', 'trace_native_values', 'trace_native_ui_action',
       'trace_feature', 'observe_native_calls', 'observe_native_ui', 'capture_native_ui_scenario',
       'inspect_pe_resources',
+      // 6.8.0+ 新增：离线单文件结构解析（不执行目标、不开引擎、不装外部工具）
+      'decompile_all', 'inspect_byte_entropy', 'inspect_elf_notes', 'inspect_gpu_code_objects',
+      'inspect_kernel_module', 'inspect_native_exports', 'inspect_pe_certificates',
+      'inspect_pe_imports', 'inspect_pe_load_config',
     ],
   },
   apple: {
@@ -44,6 +53,8 @@ export const BUNDLES = {
       'trace_dylib_resolution', 'inspect_plist', 'inspect_keyed_archive', 'inspect_asset_catalog',
       'decode_interface_builder', 'project_apple_application_graph', 'inspect_signature',
       'inspect_macho',
+      // 6.8.0+ 新增：Apple .ips 崩溃报告；以及只读打开 .app 包（plist / IB / 资源目录 / keyed archive）
+      'inspect_apple_ips', 'open_bundle_resources',
     ],
   },
   managed: {
@@ -53,6 +64,8 @@ export const BUNDLES = {
       'inspect_managed_artifact', 'inspect_managed_members', 'inspect_managed_native_boundaries',
       'verify_managed_native_boundaries', 'compare_managed_members',
       'project_managed_application_graph', 'import_managed_reconstruction',
+      // 6.8.0+ 新增：Unity IL2CPP 元数据（CIL 被 AOT 掉之后的那份替身）
+      'inspect_il2cpp_metadata',
     ],
   },
   js: {
@@ -93,6 +106,8 @@ export const BUNDLES = {
       'open_jeb_project', 'inspect_apktool_client',
       // 6.5.0+ 新增：Flutter/Dart AOT 与 HarmonyOS
       'identify_flutter_build', 'inspect_dart_aot', 'project_harmony_application_graph',
+      // 6.8.0+ 新增：APK v1/v2/v3 签名与轮换谱系（不执行 Android 代码）
+      'inspect_apk_signature',
     ],
   },
   debug: {
@@ -119,6 +134,8 @@ export const BUNDLES = {
       'inspect_go_binary', 'inspect_rust_binary', 'inspect_sqlite_database',
       'inspect_electron_fuses', 'inspect_wasm_artifact', 'compare_wasm_interfaces',
       'inspect_with_objdump',
+      // 6.8.0+ 新增：语言/容器专项 —— 模型权重、设备树 blob、CPython .pyc、Erlang BEAM
+      'inspect_devicetree', 'inspect_erlang_beam', 'inspect_model_artifact', 'inspect_python_pyc',
     ],
   },
   capture: {
@@ -138,6 +155,8 @@ export const BUNDLES = {
       'verify_reconstruction', 'verify_unknown_resolution', 'record_unknown', 'update_unknown',
       'list_unknowns', 'export_evidence_bundle', 'import_evidence_bundle', 'get_evidence_bundle',
       'find_changed_behavior', 'correlate_static_and_runtime',
+      // 6.8.0+ 新增：把抓包 Evidence 打成环境包；按符号/字节匹配两份函数清单
+      'export_environment_bundle', 'match_native_functions',
     ],
   },
   runtime: {
@@ -147,6 +166,8 @@ export const BUNDLES = {
       'extract_firmware', 'inspect_evm_interface', 'inspect_artifact', 'extract_artifact',
       'compare_process_captures', 'project_apple_application_graph',
       'project_android_application_graph', 'project_managed_application_graph',
+      // 6.8.0+ 新增：桌面应用目录的整体识别（.NET / Unity / Unreal / Godot / GameMaker / Electron）
+      'inspect_desktop_application',
     ],
   },
 };

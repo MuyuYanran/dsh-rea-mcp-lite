@@ -691,6 +691,190 @@ console.log('\n版本错配（新面板 + 旧网关）');
   check('loadGatewayModule 对缺失模块仍然抛（只有显式可选的那条路容错）', threw);
 }
 
+// ── 12. DSH 内核兼容声明 ────────────────────────────────────────────────────
+//
+// 插件包（dsh-plugin/package.json）里的 DSH 兼容范围是**加载开关**，不是注释。
+// dsh-app-boot 用 semver.satisfies(runtime, range, { includePrerelease: true }) 评估
+// `engines.dsh`（有它则独占判定、忽略 peers；0.2.1 起支持）或 `@deepseek-ai/dsh` peer
+// （0.2.1 之前只有这一条），未满足时**整个 bundle 被跳过** —— 插件行根本不会插入，
+// 设置页直接消失（app-boot 把它记进 skippedBundles，不报错）。
+//
+// 坑在 semver 的预发布规则：`>=0.2.0-rc.1 <0.3.0-0` 看着覆盖 0.2.1-rc.5，但在**不开**
+// includePrerelease 的调用方（pnpm/npm、第三方脚本）眼里，0.2.1-rc.5 因为没有「同一
+// major.minor.patch 三元组的预发布比较子」而被判不满足。所以范围按 0.2.x 的每条预发布线
+// 显式列出，让两种语义给出同一个答案。
+//
+// 这里用自带的比较器复算，并把比较器本身也钉住 —— 否则「测试通过」可能只是比较器在自说自话。
+
+console.log('\nDSH 内核兼容声明');
+{
+  const parseSemver = (text) => {
+    const matched = /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$/.exec(String(text).trim());
+    if (matched === null) return null;
+    return {
+      main: [Number(matched[1]), Number(matched[2]), Number(matched[3])],
+      pre: matched[4] === undefined ? null : matched[4].split('.'),
+    };
+  };
+  const compareSemver = (a, b) => {
+    for (let i = 0; i < 3; i += 1) if (a.main[i] !== b.main[i]) return a.main[i] < b.main[i] ? -1 : 1;
+    if (a.pre === null && b.pre === null) return 0;
+    // 有预发布标识的版本小于同号的发行版。
+    if (a.pre === null) return 1;
+    if (b.pre === null) return -1;
+    for (let i = 0; i < Math.max(a.pre.length, b.pre.length); i += 1) {
+      const x = a.pre[i];
+      const y = b.pre[i];
+      if (x === undefined) return -1; // 标识符少者更小
+      if (y === undefined) return 1;
+      const numericX = /^\d+$/.test(x);
+      const numericY = /^\d+$/.test(y);
+      if (numericX && numericY) {
+        if (Number(x) !== Number(y)) return Number(x) < Number(y) ? -1 : 1;
+      } else if (numericX) return -1; // 数字标识符 < 字母标识符
+      else if (numericY) return 1;
+      else if (x !== y) return x < y ? -1 : 1;
+    }
+    return 0;
+  };
+  /**
+   * 只认本仓库使用的形状：`>=a <b`，多条用 `||` 并列。
+   * `includePrerelease` 对齐内核（dsh-app-boot 就是这么调的）；默认值是 pnpm/npm
+   * 与第三方脚本的语义 —— 两者对预发布版本的答案会不一样，这正是要盯的地方。
+   */
+  const satisfiesRange = (version, range, { includePrerelease = false } = {}) => {
+    const target = parseSemver(version);
+    if (target === null) return false;
+    return String(range)
+      .split('||')
+      .some((alternative) => {
+        const comparators = alternative.trim().split(/\s+/).filter(Boolean);
+        if (comparators.length === 0) return false;
+        const bounds = [];
+        for (const comparator of comparators) {
+          const matched = /^(>=|<=|>|<|=)?(.+)$/.exec(comparator);
+          const bound = parseSemver(matched[2]);
+          if (bound === null) return false;
+          bounds.push({ op: matched[1] ?? '=', bound });
+        }
+        // semver 的预发布规则：目标带预发布、调用方又没开 includePrerelease 时，这一组比较子里
+        // 必须有一个「同 major.minor.patch 且自身带预发布」的界，否则判为不满足。
+        // 这就是 `>=0.2.0-rc.1 <0.3.0-0` 收不住 0.2.1-rc.5 的原因。
+        if (!includePrerelease && target.pre !== null) {
+          const sameTriple = bounds.some(
+            (entry) => entry.bound.pre !== null && entry.bound.main.every((value, index) => value === target.main[index]),
+          );
+          if (!sameTriple) return false;
+        }
+        return bounds.every((entry) => {
+          const order = compareSemver(target, entry.bound);
+          if (entry.op === '>=') return order >= 0;
+          if (entry.op === '<') return order < 0;
+          if (entry.op === '>') return order > 0;
+          if (entry.op === '<=') return order <= 0;
+          return order === 0;
+        });
+      });
+  };
+
+  // 比较器自证：拿 semver 规范里的经典优先级用例钉住它，避免比较器错了还「全绿」。
+  const ascending = ['0.2.0-0', '0.2.0-rc.1', '0.2.0', '0.2.1-alpha.1', '0.2.1-rc.5', '0.2.1', '0.2.2-alpha.2', '0.2.2'];
+  check(
+    '版本比较器：alpha < rc < 发行版，逐级递增',
+    ascending.every((value, i) => ascending.slice(i + 1).every((later) => compareSemver(parseSemver(value), parseSemver(later)) < 0)),
+  );
+  check('版本比较器：数字标识符小于字母标识符（0 < alpha.1）', compareSemver(parseSemver('0.2.1-0'), parseSemver('0.2.1-alpha.1')) < 0);
+  check('版本比较器：标识符少者更小（alpha < alpha.1）', compareSemver(parseSemver('0.2.1-alpha'), parseSemver('0.2.1-alpha.1')) < 0);
+  check('版本比较器：构建元数据不参与比较（+1 与 +2 相等）', compareSemver(parseSemver('0.2.1+1'), parseSemver('0.2.1+2')) === 0);
+  check('版本比较器：数字标识符按数值而非字典序（alpha.9 < alpha.10）', compareSemver(parseSemver('0.2.1-alpha.9'), parseSemver('0.2.1-alpha.10')) < 0);
+
+  const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'dsh-plugin', 'package.json'), 'utf8'));
+  const peerRange = pkg.peerDependencies?.['@deepseek-ai/dsh'];
+  const engineRange = pkg.engines?.dsh;
+  check('声明了 engines.dsh（0.2.1 起由它独占判定）', typeof engineRange === 'string' && engineRange.trim() !== '');
+  check('声明了 @deepseek-ai/dsh peer（0.2.0 那代只认这条）', typeof peerRange === 'string' && peerRange.trim() !== '');
+
+  // 预发布规则本身也要钉住：这三种答案就是「范围看着覆盖、其实没覆盖」的全部成因。
+  const trap = '>=0.2.0-rc.1 <0.3.0-0';
+  check('预发布规则：0.2.0-rc.2 满足同一条界（比较子三元组相同）', satisfiesRange('0.2.0-rc.2', trap));
+  check('预发布规则：0.2.1-rc.5 在 pnpm/npm 语义下**不**满足（没有同三元组的预发布界）', !satisfiesRange('0.2.1-rc.5', trap));
+  check('预发布规则：同一条界在内核语义下（includePrerelease）满足', satisfiesRange('0.2.1-rc.5', trap, { includePrerelease: true }));
+  check('预发布规则：发行版两个语义一致（规则只作用于预发布目标）', satisfiesRange('0.2.1', trap) && satisfiesRange('0.2.1', trap, { includePrerelease: true }));
+
+  // 已声明的内核版本：0.2.0 之后每一条线都要在这里出现，新的预发布线出现时**主动**加进来，
+  // 并确认两个范围都收得住 —— 忘了加，就是这次要防的那种「静默不兼容」。
+  const claimed = ['0.1.6-alpha.1', '0.2.0-rc.1', '0.2.0-rc.2', '0.2.0', '0.2.1-alpha.3', '0.2.1-rc.2', '0.2.1-rc.5', '0.2.1', '0.2.2-alpha.2', '0.2.2', '0.2.9'];
+  const refused = ['0.1.5', '0.3.0-0', '0.3.0-rc.1', '0.3.0', '1.0.0'];
+
+  const peerMisses = claimed.filter((version) => !satisfiesRange(version, peerRange));
+  const peerMissesPlain = claimed.filter((version) => !satisfiesRange(version, peerRange, { includePrerelease: true }));
+  const engineMisses = claimed.filter((version) => !satisfiesRange(version, engineRange, { includePrerelease: true }));
+  check('peer 范围（内核语义）收得住全部已声明内核版本', peerMissesPlain.length === 0, peerMissesPlain.join(', '));
+  // 这条是本次修复的正题：pnpm/npm 不开 includePrerelease，范围必须在那里也成立，
+  // 否则 strict-peer-dependencies 的用户会被 peer 报错挡住。
+  check('peer 范围（pnpm/npm 语义）收得住全部已声明内核版本', peerMisses.length === 0, peerMisses.join(', '));
+  check('engines.dsh 收得住全部已声明内核版本', engineMisses.length === 0, engineMisses.join(', '));
+  check(
+    'peer 范围在两种语义下结论一致（不再有「看着覆盖、其实没覆盖」的版本）',
+    claimed.every((version) => satisfiesRange(version, peerRange) === satisfiesRange(version, peerRange, { includePrerelease: true })),
+  );
+
+  // 0.2.1-rc.5 是当前最新的 rc 线：单独点出来，免得将来把范围写窄了还看不出来。
+  check('peer 范围明确覆盖 0.2.1-rc.5', satisfiesRange('0.2.1-rc.5', peerRange));
+  check('范围挡住了 0.3.0 系（未验证的内核不该被默默接受）',
+    refused.every((version) => !satisfiesRange(version, peerRange) && !satisfiesRange(version, engineRange)));
+
+  // 插件清单里内核要读的字段：bundle patch、客户端半、图标与本地化资源。
+  const patchRel = pkg.dsh?.bundle?.patch;
+  check('dsh.bundle.patch 指向真实存在的文件', typeof patchRel === 'string' && fs.existsSync(path.join(REPO, 'dsh-plugin', patchRel)));
+  const patchText = fs.readFileSync(path.join(REPO, 'dsh-plugin', patchRel), 'utf8');
+  check('bundle patch 插入的行名与包名一致（客户端模块 id 必须等于包名）', new RegExp(`name:\\s*${pkg.name}\\s*$`, 'm').test(patchText));
+  check('dsh.client.platform = web', pkg.dsh?.client?.platform === 'web');
+  check('exports 导出 ./client', pkg.exports?.['./client'] === './lib/client.js' && fs.existsSync(path.join(REPO, 'dsh-plugin', 'lib', 'client.js')));
+  check('exports 导出 ./icon，且图标文件真实存在', pkg.exports?.['./icon'] === './icon.svg' && fs.existsSync(path.join(REPO, 'dsh-plugin', 'icon.svg')));
+  const iconBytes = fs.statSync(path.join(REPO, 'dsh-plugin', 'icon.svg')).size;
+  check('图标在内核的 256 KiB 上限内', iconBytes > 0 && iconBytes <= 256 * 1024, `${iconBytes} B`);
+  check('exports 导出 ./locale/*.json', pkg.exports?.['./locale/*.json'] === './locale/*.json');
+  // 内核的设置→插件清单在没有激活插件的情况下读这两份资源，两份都得有 meta 文案。
+  const metaLocales = ['zh', 'en'].filter((locale) => {
+    const file = path.join(REPO, 'dsh-plugin', 'locale', `${locale}.json`);
+    if (!fs.existsSync(file)) return false;
+    const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return typeof parsed.meta?.title === 'string' && parsed.meta.title.trim() !== '' && typeof parsed.meta?.description === 'string' && parsed.meta.description.trim() !== '';
+  });
+  check('locale/zh.json 与 locale/en.json 都带 meta.title/meta.description', metaLocales.length === 2, metaLocales.join(', '));
+  // files 决定发到 npm 的内容；链接安装不看它，但发包/市场下载看。漏一个资源就是线上少一块。
+  const files = Array.isArray(pkg.files) ? pkg.files : [];
+  const missingFromFiles = ['lib', 'gateway', 'locale/*.json', 'icon.svg', 'cordis.patch.yml', 'LICENSE', 'README.md'].filter((entry) => !files.includes(entry));
+  check('files 覆盖内核要读的全部资源', missingFromFiles.length === 0, missingFromFiles.join(', '));
+
+  // 客户端半注册时用的 id 必须等于包名，否则宿主侧找不到这条 row 的浏览器半。
+  const clientSource = fs.readFileSync(path.join(REPO, 'dsh-plugin', 'lib', 'client.js'), 'utf8');
+  check('客户端半用包名注册模块 id', clientSource.includes(`id: '${pkg.name}'`));
+}
+
+// ── 13. 更新路径的命令执行 ──────────────────────────────────────────────────
+//
+// 2026-10-30 实测踩到：`update-rea --apply` 报了一句没有任何信息的「安装失败：」，
+// 而同一个 `pnpm add rea-agents@6.8.0` 手工跑是成功的。两个原因叠在一起：
+//   1. Windows 上 pnpm/npm 是 `.cmd` 垫片，不经 shell 直接 spawn 起不来；
+//   2. spawn 起不来时失败只走 `error` 事件，stdout/stderr 全空 —— 而报错只取了后两者。
+// 这一节把「该走 shell 的走 shell」和「失败必须说得出话」都钉住。
+
+console.log('\n更新路径的命令执行');
+{
+  const { runAsync, needsShell } = await load('src/updates.mjs');
+  if (process.platform === 'win32') {
+    check('Windows 上包管理器要走 shell（.cmd 垫片）', needsShell('pnpm') && needsShell('npm'));
+    check('真正的 .exe 不走 shell（保持 shell:false）', !needsShell('git') && !needsShell('node'));
+  } else {
+    check('非 Windows 平台包管理器不需要 shell', !needsShell('pnpm') && !needsShell('npm'));
+  }
+  // 起不来的命令：error 必须有内容，否则调用方只能打印一个空字符串。
+  const missing = await runAsync('rea-lite-definitely-not-a-command', [], { shell: false, timeoutMs: 5000 });
+  check('命令拉不起来时 runAsync 交出 error（不是空串）', missing.ok === false && typeof missing.error === 'string' && missing.error !== '', missing.error);
+}
+
 try { fs.rmSync(tmp, { recursive: true, force: true }); } catch { /* 清理失败不影响结论 */ }
 
 console.log(`\n通过 ${passed} 项，失败 ${failed} 项`);
